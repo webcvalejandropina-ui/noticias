@@ -26,9 +26,12 @@ import {
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-/** Producción: APP_ENV=production o NODE_ENV=production */
-const IS_PRODUCTION =
-  process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
+/**
+ * Modo producción = APP_ENV=production. Se usa SOLO APP_ENV para no mezclar
+ * con NODE_ENV (que el Dockerfile puede fijar a "production" para optimizaciones
+ * de Bun/Node aunque el despliegue sea dev/LAN).
+ */
+const IS_PRODUCTION = process.env.APP_ENV === "production";
 
 const ADMIN_TOKEN = (process.env.ADMIN_API_TOKEN ?? "").trim();
 
