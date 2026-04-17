@@ -1,7 +1,14 @@
 node_modules/
-data/*.db
-data/*.db-journal
 .env
 .env.local
 dist/
 *.log
+
+# Astro — caché local del proyecto
+frontend/.astro/
+
+# SQLite y WAL/SHM (se generan en runtime / Docker)
+data/*
+!data/.gitkeep
+
+.DS_Store
