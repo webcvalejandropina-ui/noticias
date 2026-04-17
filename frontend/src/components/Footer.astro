@@ -1,0 +1,133 @@
+---
+import type { Language } from "../lib/types";
+
+interface Props {
+  language: Language;
+  apiUrl: string;
+}
+
+const { language, apiUrl } = Astro.props;
+const year = new Date().getFullYear();
+
+const copy = {
+  es: {
+    title: "API pública y abierta",
+    subtitle:
+      "Scraping diario con cache SQLite, orquestado en Bun y servido vía Astro.",
+    apiLabel: "Endpoint de la API",
+    stack: "Bun · SQLite · Astro · Docker",
+    rights: "Proyecto educativo. Todas las marcas pertenecen a sus propietarios.",
+  },
+  en: {
+    title: "Open public API",
+    subtitle:
+      "Daily scraping with SQLite cache, orchestrated with Bun and served via Astro.",
+    apiLabel: "API endpoint",
+    stack: "Bun · SQLite · Astro · Docker",
+    rights: "Educational project. All trademarks belong to their owners.",
+  },
+}[language];
+---
+
+<footer class="site-footer">
+  <div class="container site-footer__inner">
+    <div class="site-footer__lead">
+      <h2 class="display-s site-footer__title">{copy.title}</h2>
+      <p class="site-footer__subtitle">{copy.subtitle}</p>
+    </div>
+
+    <div class="site-footer__meta">
+      <p class="site-footer__meta-label">{copy.apiLabel}</p>
+      <code class="site-footer__code">{apiUrl}</code>
+      <p class="site-footer__stack">{copy.stack}</p>
+    </div>
+  </div>
+
+  <div class="site-footer__bottom">
+    <div class="container site-footer__bottom-inner">
+      <span>© {year} · AI News Aggregator</span>
+      <span class="site-footer__rights">{copy.rights}</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    background: var(--ps-blue);
+    color: var(--ps-inverse);
+    margin-top: 96px;
+  }
+
+  .site-footer__inner {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 48px;
+    padding: 64px 24px 40px;
+  }
+
+  .site-footer__title {
+    color: var(--ps-inverse);
+    margin-bottom: 12px;
+  }
+
+  .site-footer__subtitle {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 1.125rem;
+    line-height: 1.5;
+    margin: 0;
+    max-width: 520px;
+  }
+
+  .site-footer__meta-label {
+    margin: 0 0 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+  }
+
+  .site-footer__code {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--ps-inverse);
+    border-radius: var(--ps-r-6);
+    padding: 8px 14px;
+    font-family: "JetBrains Mono", "Consolas", monospace;
+    font-size: 0.875rem;
+    word-break: break-all;
+  }
+
+  .site-footer__stack {
+    margin: 16px 0 0;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.7);
+    letter-spacing: 0.2px;
+  }
+
+  .site-footer__bottom {
+    background: rgba(0, 0, 0, 0.18);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .site-footer__bottom-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 24px;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  @media (max-width: 720px) {
+    .site-footer__inner {
+      grid-template-columns: 1fr;
+      padding: 48px 24px 32px;
+    }
+    .site-footer__bottom-inner {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+</style>

@@ -1,0 +1,380 @@
+/* =========================================================================
+   AI News — Design System inspired by PlayStation (see DESIGN.md)
+   SST sustituido por Inter (400/500/600/700) + weight 300 para displays.
+   ========================================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+:root {
+  /* Brand */
+  --ps-blue: #0070cc;
+  --ps-cyan: #1eaedb;
+  --ps-link-hover: #1883fd;
+  --ps-dark-link: #0068bd;
+  --ps-link-on-dark: #53b1ff;
+
+  /* Surfaces */
+  --ps-black: #000000;
+  --ps-shadow-black: #121314;
+  --ps-paper: #ffffff;
+  --ps-mist: #f5f7fa;
+  --ps-divider: #f3f3f3;
+  --ps-filter-mist: rgba(245, 247, 250, 0.3);
+
+  /* Text */
+  --ps-ink: #000000;
+  --ps-charcoal: #1f1f1f;
+  --ps-body-gray: #6b6b6b;
+  --ps-mute: #cccccc;
+  --ps-placeholder: rgba(0, 0, 0, 0.6);
+  --ps-inverse: #ffffff;
+
+  /* Commerce / semantic */
+  --ps-orange: #d53b00;
+  --ps-orange-active: #aa2f00;
+  --ps-warning: #c81b3a;
+
+  /* Shadows */
+  --ps-shadow-06: 0 5px 9px 0 rgba(0, 0, 0, 0.06);
+  --ps-shadow-08: 0 5px 9px 0 rgba(0, 0, 0, 0.08);
+  --ps-shadow-16: 0 5px 9px 0 rgba(0, 0, 0, 0.16);
+  --ps-shadow-80: 0 5px 9px 0 rgba(0, 0, 0, 0.8);
+
+  /* Gradients */
+  --ps-gradient-light: linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+  --ps-gradient-dark: linear-gradient(180deg, #121314 0%, #000000 100%);
+
+  /* Typography stack */
+  --ps-font: "Inter", "SST", "Helvetica", "Arial", sans-serif;
+
+  /* Radius scale */
+  --ps-r-3: 3px;
+  --ps-r-6: 6px;
+  --ps-r-12: 12px;
+  --ps-r-19: 19px;
+  --ps-r-20: 20px;
+  --ps-r-24: 24px;
+  --ps-r-36: 36px;
+  --ps-r-48: 48px;
+  --ps-r-pill: 999px;
+
+  /* Motion */
+  --ps-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ps-dur: 180ms;
+}
+
+/* -------------------------------------------------------------------------
+   Reset ligero
+   ------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--ps-font);
+  color: var(--ps-charcoal);
+  background: var(--ps-paper);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100vh;
+  font-size: 18px;
+  line-height: 1.5;
+  letter-spacing: 0.1px;
+  background: var(--ps-paper);
+  color: var(--ps-charcoal);
+}
+
+a {
+  color: var(--ps-dark-link);
+  text-decoration: none;
+  transition: color var(--ps-dur) var(--ps-ease);
+}
+a:hover {
+  color: var(--ps-link-hover);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* -------------------------------------------------------------------------
+   Layout / container
+   ------------------------------------------------------------------------- */
+.container {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding: 0 48px;
+  }
+}
+@media (min-width: 1280px) {
+  .container {
+    padding: 0 64px;
+  }
+}
+
+/* Surfaces */
+.surface-dark {
+  background: var(--ps-black);
+  color: var(--ps-inverse);
+}
+.surface-dark-gradient {
+  background: var(--ps-gradient-dark);
+  color: var(--ps-inverse);
+}
+.surface-light {
+  background: var(--ps-paper);
+  color: var(--ps-charcoal);
+}
+.surface-light-gradient {
+  background: var(--ps-gradient-light);
+  color: var(--ps-charcoal);
+}
+
+/* -------------------------------------------------------------------------
+   Typography helpers
+   ------------------------------------------------------------------------- */
+.display-xl {
+  font-family: var(--ps-font);
+  font-weight: 300;
+  font-size: clamp(2rem, 4.5vw, 3.375rem);
+  line-height: 1.15;
+  letter-spacing: -0.1px;
+  margin: 0;
+}
+
+.display-m {
+  font-family: var(--ps-font);
+  font-weight: 300;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  line-height: 1.25;
+  margin: 0;
+}
+
+.display-s {
+  font-family: var(--ps-font);
+  font-weight: 300;
+  font-size: 1.375rem;
+  line-height: 1.25;
+  letter-spacing: 0.1px;
+  margin: 0;
+}
+
+.body-relaxed {
+  font-size: 1.125rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.1px;
+}
+.caption {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.1px;
+}
+.micro {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------------------
+   Buttons — signature hover (cyan fill + 2px white border + blue ring + 1.2×)
+   ------------------------------------------------------------------------- */
+.ps-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  font: 500 1.125rem / 1.25 var(--ps-font);
+  letter-spacing: 0.4px;
+  border-radius: var(--ps-r-pill);
+  border: 2px solid transparent;
+  background: var(--ps-blue);
+  color: var(--ps-inverse);
+  cursor: pointer;
+  outline: 0;
+  text-decoration: none;
+  transition: background var(--ps-dur) var(--ps-ease),
+    transform var(--ps-dur) var(--ps-ease),
+    box-shadow var(--ps-dur) var(--ps-ease),
+    border-color var(--ps-dur) var(--ps-ease), opacity var(--ps-dur) var(--ps-ease);
+}
+.ps-btn:hover,
+.ps-btn:focus-visible {
+  background: var(--ps-cyan);
+  border-color: var(--ps-inverse);
+  box-shadow: 0 0 0 2px var(--ps-blue);
+  transform: scale(1.08); /* ligeramente menor que 1.2× para no romper layout en grids */
+  color: var(--ps-inverse);
+}
+.ps-btn:active {
+  opacity: 0.6;
+}
+.ps-btn[disabled] {
+  background: var(--ps-mute);
+  color: var(--ps-inverse);
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+.ps-btn--ghost {
+  background: transparent;
+  color: var(--ps-charcoal);
+  border: 1px solid #dedede;
+  padding: 10px 16px;
+  font-weight: 500;
+}
+.ps-btn--ghost:hover,
+.ps-btn--ghost:focus-visible {
+  background: var(--ps-cyan);
+  color: var(--ps-inverse);
+  border-color: var(--ps-inverse);
+  box-shadow: 0 0 0 2px var(--ps-blue);
+}
+
+.ps-btn--mini {
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.324px;
+}
+
+/* -------------------------------------------------------------------------
+   Pills (toggle / tabs)
+   ------------------------------------------------------------------------- */
+.ps-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border-radius: var(--ps-r-pill);
+  background: var(--ps-paper);
+  color: var(--ps-charcoal);
+  border: 1px solid #dedede;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  text-decoration: none;
+  transition: background var(--ps-dur) var(--ps-ease),
+    color var(--ps-dur) var(--ps-ease),
+    border-color var(--ps-dur) var(--ps-ease),
+    box-shadow var(--ps-dur) var(--ps-ease), transform var(--ps-dur) var(--ps-ease);
+  cursor: pointer;
+}
+.ps-pill:hover,
+.ps-pill:focus-visible {
+  background: var(--ps-cyan);
+  color: var(--ps-inverse);
+  border-color: var(--ps-inverse);
+  box-shadow: 0 0 0 2px var(--ps-blue);
+  transform: scale(1.04);
+}
+.ps-pill.is-active {
+  background: var(--ps-blue);
+  color: var(--ps-inverse);
+  border-color: var(--ps-blue);
+}
+.ps-pill.is-active:hover {
+  background: var(--ps-cyan);
+}
+
+/* -------------------------------------------------------------------------
+   Inputs & selects
+   ------------------------------------------------------------------------- */
+.ps-input,
+.ps-select {
+  width: 100%;
+  background: var(--ps-paper);
+  border: 1px solid var(--ps-mute);
+  border-radius: var(--ps-r-3);
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-family: var(--ps-font);
+  color: var(--ps-charcoal);
+  transition: box-shadow var(--ps-dur) var(--ps-ease),
+    border-color var(--ps-dur) var(--ps-ease);
+  outline: 0;
+}
+.ps-input::placeholder {
+  color: var(--ps-placeholder);
+}
+.ps-input:focus,
+.ps-select:focus {
+  box-shadow: 0 0 0 2px var(--ps-blue);
+  border-color: var(--ps-blue);
+}
+
+/* -------------------------------------------------------------------------
+   Tags / labels
+   ------------------------------------------------------------------------- */
+.ps-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--ps-r-20);
+  background: var(--ps-mist);
+  color: var(--ps-charcoal);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+.ps-tag--dark {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ps-inverse);
+}
+.ps-tag--blue {
+  background: var(--ps-blue);
+  color: var(--ps-inverse);
+}
+
+/* -------------------------------------------------------------------------
+   Accessibility
+   ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  .ps-btn:hover,
+  .ps-pill:hover {
+    transform: none;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Scrollbar cosmetics en surfaces oscuras
+   ------------------------------------------------------------------------- */
+::selection {
+  background: var(--ps-cyan);
+  color: var(--ps-black);
+}

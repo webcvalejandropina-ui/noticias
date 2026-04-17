@@ -1,0 +1,166 @@
+---
+import type { Category, Language } from "../lib/types";
+import { LANG_LABELS, UI_TEXT, categoryLabel } from "../lib/constants";
+
+interface Props {
+  language: Language;
+  category: Category;
+  total: number;
+  sourcesCount: number;
+  mode?: "list" | "digest" | "general";
+}
+
+const { language, category, total, sourcesCount, mode = "list" } = Astro.props;
+const labels = LANG_LABELS[language];
+const t = UI_TEXT[language];
+const catLabel = categoryLabel(category, language);
+const todayLabel = language === "es" ? "Hoy" : "Today";
+const kicker =
+  mode === "digest"
+    ? `${todayLabel} · ${t.digest}`
+    : mode === "general"
+      ? `${todayLabel} · ${t.general}`
+      : `${todayLabel} · ${catLabel}`;
+
+const subtitle =
+  mode === "digest"
+    ? t.digestSubtitle
+    : mode === "general"
+      ? t.generalSubtitle
+      : labels.subtitle;
+
+const totalFormatted = total.toLocaleString(language === "es" ? "es-ES" : "en-US");
+---
+
+<section class="hero surface-dark-gradient" aria-label="Cabecera">
+  <div class="container hero__inner">
+    <p class="hero__kicker">
+      <span class="hero__dot" aria-hidden="true"></span>
+      {kicker}
+    </p>
+    <h1 class="hero__title display-xl">{labels.title}</h1>
+    <p class="hero__subtitle body-relaxed">{subtitle}</p>
+
+    <div class="hero__stats" role="list">
+      <div class="hero__stat" role="listitem">
+        <span class="hero__stat-value">{totalFormatted}</span>
+        <span class="hero__stat-label">
+          {language === "es" ? "noticias indexadas" : "indexed articles"}
+        </span>
+      </div>
+      <div class="hero__stat" role="listitem">
+        <span class="hero__stat-value">{sourcesCount}</span>
+        <span class="hero__stat-label">
+          {language === "es" ? "fuentes activas" : "active sources"}
+        </span>
+      </div>
+      <div class="hero__stat" role="listitem">
+        <span class="hero__stat-value">24/7</span>
+        <span class="hero__stat-label">
+          {language === "es" ? "scraping + cache SQLite" : "scraping + SQLite cache"}
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: auto -20% -60% auto;
+    width: 620px;
+    height: 620px;
+    background: radial-gradient(
+      closest-side,
+      rgba(0, 112, 204, 0.35),
+      rgba(0, 112, 204, 0) 70%
+    );
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .hero__inner {
+    padding: 72px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-width: 960px;
+  }
+
+  .hero__kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    color: var(--ps-mute);
+    text-transform: none;
+  }
+
+  .hero__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--ps-r-pill);
+    background: var(--ps-cyan);
+    box-shadow: 0 0 0 4px rgba(30, 174, 219, 0.18);
+  }
+
+  .hero__title {
+    color: var(--ps-inverse);
+  }
+
+  .hero__subtitle {
+    max-width: 620px;
+    color: rgba(255, 255, 255, 0.78);
+    margin: 0;
+  }
+
+  .hero__stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+    margin-top: 24px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    max-width: 620px;
+  }
+
+  .hero__stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .hero__stat-value {
+    font-size: 1.75rem;
+    font-weight: 300;
+    line-height: 1;
+    color: var(--ps-inverse);
+    letter-spacing: -0.1px;
+  }
+
+  .hero__stat-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ps-mute);
+    letter-spacing: 0.1px;
+  }
+
+  @media (max-width: 600px) {
+    .hero__inner {
+      padding: 48px 24px 64px;
+    }
+    .hero__stats {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>

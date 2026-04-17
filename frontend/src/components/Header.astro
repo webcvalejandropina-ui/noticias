@@ -1,0 +1,149 @@
+---
+import type { Language, Category } from "../lib/types";
+import { LANGUAGES } from "../lib/constants";
+
+interface Props {
+  language: Language;
+  category: Category;
+}
+
+const { language, category } = Astro.props;
+
+const buildLangHref = (lang: Language): string => {
+  // Al cambiar de idioma, caemos siempre en IA (disponible en ambos)
+  const params = new URLSearchParams();
+  params.set("lang", lang);
+  params.set("cat", "ia");
+  return `/?${params.toString()}`;
+};
+---
+
+<header class="site-header">
+  <div class="container site-header__inner">
+    <a href={`/?lang=${language}&cat=${category}`} class="site-header__brand">
+      <span class="site-header__logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <rect width="32" height="32" rx="6" fill="#0070cc"></rect>
+          <path
+            d="M9 9h4l5 14h-4l-1-3h-4l-1 3H4L9 9zm2.5 4.5L10 18h3l-1.5-4.5z"
+            fill="#fff"></path>
+        </svg>
+      </span>
+      <span class="site-header__wordmark">
+        <span class="site-header__title">AI News</span>
+        <span class="site-header__tagline">agregador · cache diario</span>
+      </span>
+    </a>
+
+    <nav class="site-header__nav" aria-label="Idioma">
+      {
+        LANGUAGES.map((l) => (
+          <a
+            href={buildLangHref(l.code)}
+            class:list={[
+              "site-header__lang",
+              l.code === language && "is-active",
+            ]}
+            aria-current={l.code === language ? "page" : undefined}
+          >
+            {l.code.toUpperCase()}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--ps-black);
+    color: var(--ps-inverse);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    gap: 24px;
+  }
+
+  .site-header__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ps-inverse);
+    text-decoration: none;
+  }
+  .site-header__brand:hover {
+    color: var(--ps-link-on-dark);
+  }
+
+  .site-header__logo {
+    display: inline-flex;
+  }
+
+  .site-header__wordmark {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+  }
+
+  .site-header__title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+  }
+
+  .site-header__tagline {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--ps-mute);
+    letter-spacing: 0.2px;
+  }
+
+  .site-header__nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 4px;
+    border-radius: var(--ps-r-pill);
+  }
+
+  .site-header__lang {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    padding: 6px 14px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: var(--ps-inverse);
+    border-radius: var(--ps-r-pill);
+    text-decoration: none;
+    transition: background var(--ps-dur) var(--ps-ease),
+      color var(--ps-dur) var(--ps-ease);
+  }
+
+  .site-header__lang:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--ps-inverse);
+  }
+
+  .site-header__lang.is-active {
+    background: var(--ps-blue);
+    color: var(--ps-inverse);
+  }
+
+  @media (max-width: 480px) {
+    .site-header__tagline {
+      display: none;
+    }
+  }
+</style>
