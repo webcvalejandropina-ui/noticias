@@ -1,8 +1,10 @@
 import {
   enrichStoredNews,
+  ensureBucketFresh,
   getDigest,
   getGeneralFeed,
   getTopNews,
+  kickoffBackgroundSync,
   scrapeAllSources,
   scrapeBucket,
   syncAllSources,
@@ -24,16 +26,95 @@ import {
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-const json = (data: unknown, status = 200): Response =>
+/** Producción: APP_ENV=production o NODE_ENV=production */
+const IS_PRODUCTION =
+  process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
+
+const ADMIN_TOKEN = (process.env.ADMIN_API_TOKEN ?? "").trim();
+
+const parseCorsAllowlist = (): string[] => {
+  const raw = process.env.CORS_ALLOWED_ORIGINS?.trim();
+  if (!raw) return [];
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+};
+
+const corsHeadersFor = (req: Request): Record<string, string> => {
+  const list = parseCorsAllowlist();
+  const origin = req.headers.get("Origin");
+  const h: Record<string, string> = {
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Token",
+  };
+
+  if (!IS_PRODUCTION) {
+    h["Access-Control-Allow-Origin"] = "*";
+    return h;
+  }
+
+  if (list.length === 0) {
+    if (origin) h["Vary"] = "Origin";
+    return h;
+  }
+
+  if (list.includes("*")) {
+    h["Access-Control-Allow-Origin"] = "*";
+    return h;
+  }
+
+  if (origin && list.includes(origin)) {
+    h["Access-Control-Allow-Origin"] = origin;
+    h["Vary"] = "Origin";
+  }
+
+  return h;
+};
+
+const json = (req: Request, data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data, null, 2), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Cache-Control": "no-cache",
+      "X-Content-Type-Options": "nosniff",
+      ...corsHeadersFor(req),
     },
   });
+
+/**
+ * Rutas que modifican scraping / BD. En producción exigen ADMIN_API_TOKEN
+ * (Bearer, cabecera X-Admin-Token o ?token= solo para scripts internos).
+ * En desarrollo siguen abiertas para no friccionar el día a día.
+ */
+const assertAdminAuthorized = (req: Request): Response | null => {
+  if (!IS_PRODUCTION) return null;
+
+  if (!ADMIN_TOKEN) {
+    return json(
+      req,
+      {
+        error: "Forbidden",
+        detail:
+          "En producción define ADMIN_API_TOKEN en el servicio api. Rutas: /refresh, /sync, /enrich, /cleanup y variantes por idioma/categoría.",
+      },
+      403,
+    );
+  }
+
+  const auth = req.headers.get("Authorization");
+  const bearer = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  const header = req.headers.get("X-Admin-Token")?.trim() ?? "";
+  const q = new URL(req.url).searchParams.get("token")?.trim() ?? "";
+  const ok =
+    (bearer.length > 0 && bearer === ADMIN_TOKEN) ||
+    (header.length > 0 && header === ADMIN_TOKEN) ||
+    (q.length > 0 && q === ADMIN_TOKEN);
+
+  if (!ok) {
+    return json(req, { error: "Unauthorized" }, 401);
+  }
+
+  return null;
+};
 
 const isLanguage = (v: string): v is Language => (ALL_LANGUAGES as string[]).includes(v);
 const isCategory = (v: string): v is Category => (ALL_CATEGORIES as string[]).includes(v);
@@ -45,18 +126,24 @@ const parseLimit = (raw: string | null, def = 10): number => {
 
 /**
  * Handler: /:lang/browse/:category
- * Paginación + búsqueda + filtro por fuente. Pensado para el frontend.
  */
-const handleBrowse = (language: Language, categoryRaw: string, url: URL): Response => {
+const handleBrowse = async (
+  req: Request,
+  language: Language,
+  categoryRaw: string,
+  url: URL,
+): Promise<Response> => {
   const category = categoryRaw as Category;
   if (!isCategory(category)) {
-    return json({ error: "Unknown category", category }, 400);
+    return json(req, { error: "Unknown category", category }, 400);
   }
 
   const sources = getSourcesBy(language, category);
   if (sources.length === 0) {
-    return json({ error: "No sources for this bucket", language, category }, 404);
+    return json(req, { error: "No sources for this bucket", language, category }, 404);
   }
+
+  await ensureBucketFresh(language, category);
 
   const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
   const pageSize = Math.min(
@@ -77,7 +164,7 @@ const handleBrowse = (language: Language, categoryRaw: string, url: URL): Respon
     offset: (safePage - 1) * pageSize,
   });
 
-  return json({
+  return json(req, {
     language,
     category,
     page: safePage,
@@ -93,9 +180,9 @@ const handleBrowse = (language: Language, categoryRaw: string, url: URL): Respon
 
 /**
  * Handler: /:lang/news[/:category]
- * Si no se indica categoría, devuelve IA por defecto.
  */
 const handleLanguageNews = async (
+  req: Request,
   language: Language,
   categoryRaw: string | null,
   url: URL,
@@ -103,6 +190,7 @@ const handleLanguageNews = async (
   const category = (categoryRaw ?? "ia") as Category;
   if (!isCategory(category)) {
     return json(
+      req,
       {
         error: "Unknown category",
         category,
@@ -115,6 +203,7 @@ const handleLanguageNews = async (
   const sources = getSourcesBy(language, category);
   if (sources.length === 0) {
     return json(
+      req,
       {
         error: "No sources configured for this language+category",
         language,
@@ -128,7 +217,7 @@ const handleLanguageNews = async (
   const limit = parseLimit(url.searchParams.get("limit"));
   const result = await getTopNews(language, category, limit);
 
-  return json({
+  return json(req, {
     language: result.language,
     category: result.category,
     day: result.day,
@@ -142,8 +231,6 @@ const handleLanguageNews = async (
 
 const server = Bun.serve({
   port: PORT,
-  // El scraping y enriquecimiento pueden tardar >10s; subimos el idle timeout
-  // para que Bun no cierre la conexión antes de tiempo.
   idleTimeout: 255,
   async fetch(req) {
     const url = new URL(req.url);
@@ -152,15 +239,14 @@ const server = Bun.serve({
       return new Response(null, {
         status: 204,
         headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "X-Content-Type-Options": "nosniff",
+          ...corsHeadersFor(req),
         },
       });
     }
 
     if (req.method !== "GET") {
-      return json({ error: "Method Not Allowed" }, 405);
+      return json(req, { error: "Method Not Allowed" }, 405);
     }
 
     try {
@@ -168,7 +254,7 @@ const server = Bun.serve({
       const segments = path.split("/").filter(Boolean);
 
       if (path === "/") {
-        return json({
+        return json(req, {
           name: "AI News API",
           version: "2.0.0",
           description:
@@ -177,6 +263,16 @@ const server = Bun.serve({
           categoriesByLanguage: Object.fromEntries(
             ALL_LANGUAGES.map((l) => [l, getCategoriesByLanguage(l)]),
           ),
+          security: {
+            appEnv: IS_PRODUCTION ? "production" : "development",
+            adminRoutesRequireToken: IS_PRODUCTION,
+            cors:
+              IS_PRODUCTION && parseCorsAllowlist().length === 0
+                ? "Solo orígenes listados en CORS_ALLOWED_ORIGINS (vacío = sin CORS abierto)."
+                : IS_PRODUCTION
+                  ? "Orígenes permitidos según CORS_ALLOWED_ORIGINS."
+                  : "Desarrollo: Access-Control-Allow-Origin: *",
+          },
           endpoints: {
             "GET /:lang/news": "Top 10 noticias del día (idioma + categoría IA por defecto)",
             "GET /:lang/news/:category":
@@ -193,17 +289,18 @@ const server = Bun.serve({
               "Fuentes disponibles para un idioma (opcionalmente filtradas por categoría)",
             "GET /sources": "Lista completa de fuentes configuradas",
             "GET /health": "Health check con nº de noticias de hoy",
-            "GET /refresh": "Fuerza scraping de todas las fuentes (solo añade nuevas)",
-            "GET /sync":
-              "Sincroniza todas las fuentes: inserta nuevas, no modifica existentes, borra las que ya no están en el RSS",
-            "GET /:lang/sync":
-              "Sincroniza todas las fuentes de un idioma concreto",
-            "GET /:lang/sync/:category":
-              "Sincroniza las fuentes de un bucket (idioma + categoría)",
-            "GET /enrich?limit=N":
-              "Recorre registros con links de Google News o imágenes genéricas y resuelve URL + og:image",
-            "GET /cleanup":
-              "Borra manualmente las noticias con más de 3 días de antigüedad",
+            "GET /refresh": `Fuerza scraping global${
+              IS_PRODUCTION ? " (requiere ADMIN_API_TOKEN)" : ""
+            }`,
+            "GET /sync": `Sync global de fuentes${
+              IS_PRODUCTION ? " (requiere ADMIN_API_TOKEN)" : ""
+            }`,
+            "GET /:lang/sync": `Sync por idioma${IS_PRODUCTION ? " (token)" : ""}`,
+            "GET /:lang/sync/:category": `Sync por bucket${IS_PRODUCTION ? " (token)" : ""}`,
+            "GET /enrich?limit=N": `Enriquecimiento de registros${
+              IS_PRODUCTION ? " (token)" : ""
+            }`,
+            "GET /cleanup": `Purge manual +3 días${IS_PRODUCTION ? " (token)" : ""}`,
             "GET /news": "Alias retrocompat de /en/news/ia",
           },
           examples: [
@@ -221,7 +318,7 @@ const server = Bun.serve({
       }
 
       if (path === "/health") {
-        return json({
+        return json(req, {
           status: "ok",
           day: getToday(),
           newsToday: countNews({ day: getToday() }),
@@ -230,7 +327,7 @@ const server = Bun.serve({
       }
 
       if (path === "/sources") {
-        return json({
+        return json(req, {
           count: SOURCES.length,
           sources: SOURCES.map((s) => ({
             name: s.name,
@@ -242,8 +339,10 @@ const server = Bun.serve({
       }
 
       if (path === "/refresh") {
+        const denied = assertAdminAuthorized(req);
+        if (denied) return denied;
         const result = await scrapeAllSources();
-        return json({
+        return json(req, {
           day: getToday(),
           totalFetched: result.totalFetched,
           inserted: result.inserted,
@@ -253,46 +352,52 @@ const server = Bun.serve({
       }
 
       if (path === "/sync") {
+        const denied = assertAdminAuthorized(req);
+        if (denied) return denied;
         const result = await syncAllSources();
-        return json({ day: getToday(), ...result });
+        return json(req, { day: getToday(), ...result });
       }
 
       if (path === "/enrich") {
+        const denied = assertAdminAuthorized(req);
+        if (denied) return denied;
         const rawLimit = Number(url.searchParams.get("limit") ?? 400);
         const limit = Math.min(Math.max(Math.floor(rawLimit) || 400, 1), 2000);
         const result = await enrichStoredNews(limit);
-        return json({ day: getToday(), limit, ...result });
+        return json(req, { day: getToday(), limit, ...result });
       }
 
       if (path === "/cleanup") {
+        const denied = assertAdminAuthorized(req);
+        if (denied) return denied;
         const purged = purgeOldNews();
-        return json({ day: getToday(), purged });
+        return json(req, { day: getToday(), purged });
       }
 
       if (path === "/news") {
-        return await handleLanguageNews("en", "ia", url);
+        return await handleLanguageNews(req, "en", "ia", url);
       }
 
       if (segments.length >= 1 && isLanguage(segments[0]!)) {
         const language = segments[0] as Language;
 
         if (segments.length === 2 && segments[1] === "categories") {
-          return json({
+          return json(req, {
             language,
             categories: getCategoriesByLanguage(language),
           });
         }
 
         if (segments.length === 2 && segments[1] === "news") {
-          return await handleLanguageNews(language, null, url);
+          return await handleLanguageNews(req, language, null, url);
         }
 
         if (segments.length === 3 && segments[1] === "news") {
-          return await handleLanguageNews(language, segments[2]!, url);
+          return await handleLanguageNews(req, language, segments[2]!, url);
         }
 
         if (segments.length === 3 && segments[1] === "browse") {
-          return handleBrowse(language, segments[2]!, url);
+          return await handleBrowse(req, language, segments[2]!, url);
         }
 
         if (segments.length === 2 && segments[1] === "digest") {
@@ -302,14 +407,14 @@ const server = Bun.serve({
             12,
           );
           const result = await getDigest(language, perCategory);
-          return json(result);
+          return json(req, result);
         }
 
         if (segments.length === 2 && segments[1] === "general") {
           const rawLimit = Number(url.searchParams.get("limit") ?? 20);
           const limit = Math.min(Math.max(Math.floor(rawLimit) || 20, 1), 50);
           const result = await getGeneralFeed(language, limit);
-          return json(result);
+          return json(req, result);
         }
 
         if (segments.length === 2 && segments[1] === "sources") {
@@ -317,7 +422,7 @@ const server = Bun.serve({
           const filtered = SOURCES.filter(
             (s) => s.language === language && (!cat || s.category === cat),
           );
-          return json({
+          return json(req, {
             language,
             count: filtered.length,
             sources: filtered.map((s) => ({
@@ -331,41 +436,50 @@ const server = Bun.serve({
         if (segments.length === 2 && segments[1] === "all") {
           const day = getToday();
           const news = queryNews({ language, day });
-          return json({ language, day, count: news.length, news });
+          return json(req, { language, day, count: news.length, news });
         }
 
         if (segments.length === 3 && segments[1] === "refresh") {
+          const denied = assertAdminAuthorized(req);
+          if (denied) return denied;
           const category = segments[2];
           if (!category || !isCategory(category)) {
-            return json({ error: "Invalid category", category }, 400);
+            return json(req, { error: "Invalid category", category }, 400);
           }
           const result = await scrapeBucket(language, category);
-          return json({ language, category, day: getToday(), ...result });
+          return json(req, { language, category, day: getToday(), ...result });
         }
 
         if (segments.length === 2 && segments[1] === "sync") {
+          const denied = assertAdminAuthorized(req);
+          if (denied) return denied;
           const result = await syncLanguage(language);
-          return json({ language, day: getToday(), ...result });
+          return json(req, { language, day: getToday(), ...result });
         }
 
         if (segments.length === 3 && segments[1] === "sync") {
+          const denied = assertAdminAuthorized(req);
+          if (denied) return denied;
           const category = segments[2];
           if (!category || !isCategory(category)) {
-            return json({ error: "Invalid category", category }, 400);
+            return json(req, { error: "Invalid category", category }, 400);
           }
           const result = await syncBucket(language, category);
-          return json({ language, category, day: getToday(), ...result });
+          return json(req, { language, category, day: getToday(), ...result });
         }
       }
 
-      return json({ error: "Not Found", path: url.pathname }, 404);
+      return json(req, { error: "Not Found", path: url.pathname }, 404);
     } catch (err) {
       console.error("[api] error en", url.pathname, err);
       return json(
-        {
-          error: "Internal Server Error",
-          message: err instanceof Error ? err.message : String(err),
-        },
+        req,
+        IS_PRODUCTION
+          ? { error: "Internal Server Error" }
+          : {
+              error: "Internal Server Error",
+              message: err instanceof Error ? err.message : String(err),
+            },
         500,
       );
     }
@@ -373,6 +487,15 @@ const server = Bun.serve({
 });
 
 console.log(`AI News API en http://localhost:${server.port}`);
+if (IS_PRODUCTION) {
+  console.log("[api] modo producción: rutas admin protegidas por ADMIN_API_TOKEN");
+}
+
+if (/^(1|true|yes|on)$/i.test(process.env.SCRAPE_ON_START ?? "")) {
+  console.log("[api] SCRAPE_ON_START activo → lanzando sync en background");
+  kickoffBackgroundSync();
+}
+
 console.log(`  GET /es/news             -> top 10 noticias IA en español`);
 console.log(`  GET /es/news/futbol      -> top 10 fútbol`);
 console.log(`  GET /es/news/internacional`);

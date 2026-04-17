@@ -9,7 +9,7 @@ FROM oven/bun:1-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=13100
 ENV DB_PATH=/app/data/news.db
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -20,9 +20,9 @@ RUN mkdir -p /app/data && chown -R bun:bun /app
 
 USER bun
 
-EXPOSE 3000
+EXPOSE 13100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --spider -q http://localhost:3000/health || exit 1
+  CMD wget --spider -q http://localhost:13100/health || exit 1
 
 CMD ["bun", "run", "src/index.ts"]

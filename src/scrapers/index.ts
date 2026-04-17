@@ -365,6 +365,38 @@ export const syncBucket = (
 ): Promise<SyncSummary> => syncSources(getSourcesBy(language, category));
 
 /**
+ * Garantiza que un bucket tenga datos "frescos" antes de responder a un
+ * cliente. Si el cache está vencido o la BD no tiene nada para ese bucket,
+ * lanza un scrape síncrono. Se usa desde endpoints que solo leen la BD
+ * (p. ej. `/:lang/browse/:category`) para que la primera llamada tras un
+ * despliegue en blanco no devuelva una lista vacía.
+ */
+export const ensureBucketFresh = async (
+  language: Language,
+  category: Category,
+): Promise<void> => {
+  if (isBucketFresh(language, category)) return;
+  await scrapeBucket(language, category);
+};
+
+/**
+ * Lanza un scrape global sin esperar resultado. Pensado para usarse en el
+ * arranque de la API con SCRAPE_ON_START=1 (modos red-local / producción)
+ * para que la base empiece a poblarse cuanto antes sin bloquear el server.
+ */
+export const kickoffBackgroundSync = (): void => {
+  syncAllSources()
+    .then((summary) => {
+      console.log(
+        `[api] startup sync: inserted=${summary.inserted} deleted=${summary.deleted} purged=${summary.purged} errors=${summary.errors.length}`,
+      );
+    })
+    .catch((err) => {
+      console.error("[api] startup sync failed:", err);
+    });
+};
+
+/**
  * Decide si el cache de un bucket sigue siendo válido.
  */
 const isBucketFresh = (language: Language, category: Category): boolean => {

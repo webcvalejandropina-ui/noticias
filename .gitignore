@@ -12,3 +12,9 @@ data/*
 !data/.gitkeep
 
 .DS_Store
+
+# Vista previa generada solo en local (no versionar)
+preview-local.png
+
+# Export Docker local (docker save)
+noticias-docker-images.tar

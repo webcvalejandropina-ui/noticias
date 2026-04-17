@@ -1,0 +1,114 @@
+# ==============================================================================
+# MODO 3: PRODUCCIÓN (registro de imágenes, cualquier OS / servidor / cloud)
+# ==============================================================================
+# Las imágenes se descargan SIEMPRE del registro (pull_policy: always). Usa tags
+# inmutables (nunca :latest en prod) para que el despliegue sea reproducible.
+#
+# Requisitos en el host: docker + docker compose. Cualquier SO (Linux / Windows /
+# macOS) con motor Linux containers. No se construye en el servidor.
+#
+# Publicar las imágenes desde tu máquina (ver scripts/push-docker-registry.sh):
+#   docker buildx build --platform linux/amd64 -t $REGISTRY/noticias-api:$TAG --push -f Dockerfile .
+#   docker buildx build --platform linux/amd64 -t $REGISTRY/noticias-frontend:$TAG --push -f frontend/Dockerfile frontend
+#
+# Desplegar:
+#   REGISTRY=ghcr.io/mi-org TAG=1.0.0 PUBLIC_API_URL=https://api.midominio.com \
+#     docker compose -f docker-compose.prod.yml up -d
+#
+# Variables obligatorias:
+#   NOTICIAS_API_IMAGE        (ej. ghcr.io/mi-org/noticias-api:1.0.0)
+#   NOTICIAS_FRONTEND_IMAGE   (ej. ghcr.io/mi-org/noticias-frontend:1.0.0)
+#   PUBLIC_API_URL            URL pública de la API (footer SSR + CORS si aplica)
+#   ADMIN_API_TOKEN           Secreto para /refresh, /sync, /enrich, /cleanup
+# Opcionales: HOST_PORT, FRONTEND_PORT, TZ, CORS_ALLOWED_ORIGINS (origen del frontend)
+# ==============================================================================
+
+services:
+  api:
+    image: ${NOTICIAS_API_IMAGE:?set NOTICIAS_API_IMAGE=registry/noticias-api:tag}
+    platform: linux/amd64
+    pull_policy: always
+    restart: always
+    ports:
+      - "${HOST_PORT:-13100}:13100"
+    environment:
+      - PORT=13100
+      - DB_PATH=/app/data/news.db
+      - TZ=${TZ:-Europe/Madrid}
+      - NODE_ENV=production
+      - APP_ENV=production
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:?Define ADMIN_API_TOKEN (secreto aleatorio, p. ej. openssl rand -hex 32)}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - SCRAPE_ON_START=${SCRAPE_ON_START:-1}
+    volumes:
+      - ai-news-data:/app/data
+    networks:
+      - ai-news-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:13100/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    image: ${NOTICIAS_FRONTEND_IMAGE:?set NOTICIAS_FRONTEND_IMAGE=registry/noticias-frontend:tag}
+    platform: linux/amd64
+    pull_policy: always
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-4321}:4321"
+    environment:
+      - API_URL=http://api:13100
+      - PUBLIC_API_URL=${PUBLIC_API_URL:?set PUBLIC_API_URL=https://api.tudominio.com}
+      - TZ=${TZ:-Europe/Madrid}
+      - HOST=0.0.0.0
+      - PORT=4321
+    depends_on:
+      - api
+    networks:
+      - ai-news-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:4321/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scraper:
+    image: ${NOTICIAS_API_IMAGE}
+    platform: linux/amd64
+    pull_policy: always
+    restart: "no"
+    depends_on:
+      - api
+    environment:
+      - DB_PATH=/app/data/news.db
+      - TZ=${TZ:-Europe/Madrid}
+    volumes:
+      - ai-news-data:/app/data
+    networks:
+      - ai-news-net
+    entrypoint: ["bun", "run", "src/cli/scrape.ts"]
+    profiles:
+      - scrape
+
+networks:
+  ai-news-net:
+    driver: bridge
+
+volumes:
+  ai-news-data:
+    driver: local

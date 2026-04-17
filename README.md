@@ -58,21 +58,112 @@ La API arranca en `http://localhost:3000` (configurable con `PORT`).
 
 ## Ejecución con Docker
 
+El proyecto funciona en **cualquier sistema operativo** con Docker Desktop o Docker Engine (Linux, Windows con WSL2/Hyper-V, macOS Intel/Apple Silicon) siempre en modo **Linux containers**. Solo hay dos ficheros compose:
+
+| Fichero | Caso de uso |
+|---------|-------------|
+| **`docker-compose.yml`** | Desarrollo local + red local (LAN) + Portainer. En tu PC se combina con `docker-compose.override.yml` (build automático). |
+| **`docker-compose.prod.yml`** | VPS / producción: solo imágenes del registry, `pull_policy: always`, API en modo seguro (`APP_ENV=production`). |
+
+### Arranque rápido (mismo equipo o otro PC de la LAN)
+
 ```bash
-# Construir e iniciar API + frontend
+# 1ª vez: construye las imágenes y levanta (vale en Linux, macOS y Windows)
 docker compose up -d --build
 
-# Logs
-docker compose logs -f api
-docker compose logs -f frontend
-
-# Scraping manual dentro del contenedor (one-shot)
-docker compose run --rm scraper
-docker compose run --rm scraper es ia
-
-# Parar todo
-docker compose down
+# siguientes arranques (imagen ya existe)
+docker compose up -d
 ```
+
+Abre en el navegador:
+
+- **Desde la misma máquina:** `http://localhost:4321`
+- **Desde otro PC de la LAN:** `http://IP_DEL_HOST:4321` (ej. `http://192.168.1.128:4321`)
+
+> Si vas a acceder desde **otro equipo de la red**, crea un `.env` (copia `.env.example`) con:
+> ```
+> PUBLIC_API_URL=http://192.168.1.128:13100
+> ```
+> Esto es imprescindible: el navegador del otro PC no puede resolver `localhost`. La variable se inyecta en el HTML SSR para que el footer y cualquier enlace público apunten al API correcto. **En local lo único que suele cambiar es `PUBLIC_API_URL`** (mismo compose, mismo código).
+
+El stack arranca con `SCRAPE_ON_START=1` por defecto, así que en segundo plano empieza a poblar la base de datos nada más levantar. El primer `/:lang/browse/:category` que llegue al API también dispara un scraping bajo demanda si aún no hay datos, de modo que no verás la interfaz vacía más que un instante.
+
+Comandos habituales:
+
+```bash
+docker compose logs -f api                                # logs backend
+docker compose logs -f frontend                           # logs frontend
+docker compose --profile scrape run --rm scraper          # scraping manual (todas las fuentes)
+docker compose --profile scrape run --rm scraper es ia    # solo es/ia
+docker compose down                                       # para y limpia contenedores
+```
+
+### Llevarlo a otro equipo sin acceso al código (Portainer, .tar)
+
+Genera un `.tar` con las imágenes **`linux/amd64`** (compatible con cualquier PC Linux x86_64 y con Docker Desktop de Windows/macOS en modo Linux containers):
+
+```bash
+./scripts/export-docker-tar.sh                                           # Linux / macOS
+powershell -ExecutionPolicy Bypass -File scripts/export-docker-tar.ps1   # Windows
+```
+
+Se crea `noticias-docker-images.tar` (~270 MB). Copia ese fichero y `docker-compose.yml` al equipo destino y ejecuta:
+
+```bash
+docker load -i noticias-docker-images.tar
+docker compose up -d            # no hace build: ya tiene las imágenes cargadas
+```
+
+En **Portainer** (`Stacks → Add stack → Web editor`):
+
+1. Pega el contenido de `docker-compose.yml`.
+2. En **Environment variables** añade al menos:
+   ```
+   PUBLIC_API_URL=http://192.168.1.128:13100
+   ```
+   (IP real del host Docker; `:13100` es el puerto del API).
+3. Deploy.
+
+Portainer no construirá nada: la imagen ya está en el daemon porque hiciste `docker load` previamente.
+
+> **`Exec format error` / `tini … failed`** = arquitectura incorrecta. Regenera el `.tar` con el script: fuerza `linux/amd64` mediante `docker buildx --platform linux/amd64`.
+
+### Producción — VPS y registry
+
+Publica las imágenes con un tag inmutable:
+
+```bash
+REGISTRY=ghcr.io/tu-org TAG=1.0.0 ./scripts/push-docker-registry.sh
+```
+
+En el VPS (solo necesitas Docker; no hace falta el código fuente):
+
+```bash
+export NOTICIAS_API_IMAGE=ghcr.io/tu-org/noticias-api:1.0.0
+export NOTICIAS_FRONTEND_IMAGE=ghcr.io/tu-org/noticias-frontend:1.0.0
+export PUBLIC_API_URL=https://api.tudominio.com
+export ADMIN_API_TOKEN="$(openssl rand -hex 32)"
+export CORS_ALLOWED_ORIGINS=https://noticias.tudominio.com
+
+docker compose -f docker-compose.prod.yml up -d
+```
+
+- **`PUBLIC_API_URL`**: URL HTTPS (o HTTP interno detrás de un proxy) con la que el **navegador** llama al API; debe ser la misma que uses en el dominio público.
+- **`ADMIN_API_TOKEN`**: obligatorio en producción. Protege `GET /refresh`, `GET /sync`, `GET /enrich`, `GET /cleanup` y las rutas `/:lang/sync` y `/:lang/refresh/:category`. Uso: cabecera `Authorization: Bearer <token>` o `X-Admin-Token: <token>`. El cron con `docker compose --profile scrape run` **no** pasa por HTTP; no necesita el token.
+- **`CORS_ALLOWED_ORIGINS`**: orígenes permitidos para peticiones al API desde el navegador (p. ej. la URL del frontend). En producción, si está vacío, **no** se envía `Access-Control-Allow-Origin: *` (más seguro). El frontend Astro hace `fetch` en SSR hacia `http://api:13100`, así que sigue funcionando sin CORS abierto.
+
+Recomendado delante del VPS: **Caddy** o **nginx** con TLS, limitando exposición de puertos al 443 (y proxy interno a `frontend:4321` y `api:13100` si quieres un solo host; en el compose actual ambos puertos se publican en el host para simplicidad).
+
+Nunca uses `:latest` en producción; rotar `TAG` te da rollbacks triviales.
+
+#### Seguridad (resumen)
+
+| Entorno | `APP_ENV` | Rutas admin (`/refresh`, …) | CORS |
+|---------|-----------|-----------------------------|------|
+| `docker-compose.yml` por defecto | `development` | Abiertas (cómodo en local) | `*` |
+| `docker-compose.prod.yml` | `production` | Requieren `ADMIN_API_TOKEN` | Lista en `CORS_ALLOWED_ORIGINS` o estricto |
+
+Cabecera en todas las respuestas JSON: `X-Content-Type-Options: nosniff`. Los errores 500 en producción no incluyen el mensaje interno en el JSON.
 
 El stack tiene tres servicios:
 
@@ -86,7 +177,13 @@ Variables de entorno soportadas (definibles en un `.env`):
 |----------|---------|-------------|
 | `HOST_PORT` | `13100` | Puerto host donde se publica la API |
 | `FRONTEND_PORT` | `4321` | Puerto host donde se publica el frontend |
-| `PUBLIC_API_URL` | `http://localhost:${HOST_PORT}` | URL pública que muestra el frontend |
+| `PUBLIC_API_URL` | `http://localhost:13100` | URL con la que el **navegador** llega a la API. En LAN: `http://IP_HOST:13100`. En prod: dominio real. |
+| `NOTICIAS_API_IMAGE` | `ai-news-api:latest` (dev/LAN) / obligatorio (producción) | Imagen de la API |
+| `NOTICIAS_FRONTEND_IMAGE` | `ai-news-frontend:latest` (dev/LAN) / obligatorio (producción) | Imagen del frontend |
+| `SCRAPE_ON_START` | `1` | Si es `1`, dispara un scraping global en segundo plano al arrancar el API |
+| `APP_ENV` | `development` (compose base) / `production` (prod) | Activa protección de rutas admin y CORS estricto en producción |
+| `ADMIN_API_TOKEN` | vacío (dev) / obligatorio (prod) | Token para `/refresh`, `/sync`, `/enrich`, `/cleanup` y variantes |
+| `CORS_ALLOWED_ORIGINS` | vacío | En prod: lista separada por comas de orígenes permitidos; vacío = sin wildcard |
 | `DB_PATH` | `/app/data/news.db` | Ruta al fichero SQLite (contenedor API) |
 | `TZ` | `Europe/Madrid` | Zona horaria de los contenedores |
 
@@ -98,7 +195,7 @@ Para mantener la DB fresca sin esperar al primer request, puedes programar un sc
 
 ```bash
 # crontab -e  (cada hora)
-0 * * * * cd /ruta/al/repo && docker compose run --rm scraper >> /var/log/news-scraper.log 2>&1
+0 * * * * cd /ruta/al/repo && docker compose --profile scrape run --rm scraper >> /var/log/news-scraper.log 2>&1
 ```
 
 ## Endpoints
@@ -217,7 +314,13 @@ API_URL=http://localhost:13100 bun ./dist/server/entry.mjs   # o `bun run start`
 ├── package.json
 ├── tsconfig.json
 ├── Dockerfile                  # imagen API (Bun)
-├── docker-compose.yml          # api + frontend + scraper
+├── docker-compose.yml          # dev / LAN / Portainer (build local + reuso)
+├── docker-compose.prod.yml     # producción desde registry (pull_policy: always)
+├── scripts/
+│   ├── export-docker-tar.sh    # buildx linux/amd64 + docker save (portable)
+│   ├── export-docker-tar.ps1   # idem en Windows
+│   └── push-docker-registry.sh # buildx linux/amd64 + docker push (producción)
+├── .env.example                # variables por modo
 ├── .dockerignore
 ├── data/                       # SQLite (volumen Docker `ai-news-data`)
 │   └── news.db

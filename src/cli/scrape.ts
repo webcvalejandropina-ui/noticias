@@ -39,7 +39,12 @@ if (!langArg) {
     process.exit(1);
   }
 
-  const categories: Category[] = catArg ? [catArg] : ALL_CATEGORIES;
+  let categories: Category[];
+  if (catArg) {
+    categories = [catArg as Category];
+  } else {
+    categories = [...ALL_CATEGORIES];
+  }
   for (const cat of categories) {
     const result = await scrapeBucket(langArg, cat);
     console.log(

@@ -1,9 +1,23 @@
+# ==============================================================================
+#  docker-compose.yml — DEV / LOCAL / LAN / Portainer (cualquier SO)
+# ==============================================================================
+# Este fichero NO contiene build: define solo las imágenes ya construidas. De
+# ese modo vale igual para:
+#   - tu máquina (se combina con docker-compose.override.yml, que sí trae build)
+#   - otro PC de la LAN al que copias el .tar y haces `docker load`
+#   - Portainer (Web editor): pégalo tal cual, sin contexto de build
+#
+# Variables de entorno aceptadas (en .env o en la UI de Portainer):
+#   HOST_PORT, FRONTEND_PORT, TZ, PUBLIC_API_URL, SCRAPE_ON_START
+#   PUBLIC_API_URL → en LAN debe ser http://IP_DEL_HOST:13100 (no "localhost").
+#
+# Scraper one-shot:  docker compose --profile scrape run --rm scraper
+# ==============================================================================
+
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ai-news-api:latest
+    image: ${NOTICIAS_API_IMAGE:-ai-news-api:latest}
+    pull_policy: missing
     container_name: ai-news-api
     restart: unless-stopped
     ports:
@@ -12,16 +26,23 @@ services:
       - PORT=13100
       - DB_PATH=/app/data/news.db
       - TZ=${TZ:-Europe/Madrid}
+      # development = rutas /refresh abiertas; production = exigen ADMIN_API_TOKEN (usa prod compose).
+      - APP_ENV=${APP_ENV:-development}
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      # Sync en background al arrancar → stack listo con noticias sin intervención.
+      - SCRAPE_ON_START=${SCRAPE_ON_START:-1}
     volumes:
       - ai-news-data:/app/data
     networks:
       - ai-news-net
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13100/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:13100/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    stop_grace_period: 20s
     logging:
       driver: json-file
       options:
@@ -29,31 +50,29 @@ services:
         max-file: "3"
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    image: ai-news-frontend:latest
+    image: ${NOTICIAS_FRONTEND_IMAGE:-ai-news-frontend:latest}
+    pull_policy: missing
     container_name: ai-news-frontend
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-4321}:4321"
     environment:
       - API_URL=http://api:13100
-      - PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost:${HOST_PORT:-13100}}
+      - PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost:13100}
       - TZ=${TZ:-Europe/Madrid}
       - HOST=0.0.0.0
       - PORT=4321
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     networks:
       - ai-news-net
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4321/"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:4321/"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 25s
+    stop_grace_period: 20s
     logging:
       driver: json-file
       options:
@@ -61,7 +80,8 @@ services:
         max-file: "3"
 
   scraper:
-    image: ai-news-api:latest
+    image: ${NOTICIAS_API_IMAGE:-ai-news-api:latest}
+    pull_policy: missing
     container_name: ai-news-scraper
     restart: "no"
     depends_on:

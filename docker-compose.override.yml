@@ -1,0 +1,24 @@
+# ==============================================================================
+#  docker-compose.override.yml — build local (se carga AUTOMÁTICAMENTE)
+# ==============================================================================
+# Docker Compose aplica este fichero encima de docker-compose.yml sin que lo
+# indiques explícitamente. Sirve para:
+#   - Tu máquina (dev): `docker compose up -d --build` construye la imagen y
+#     la reutiliza en sucesivos arranques.
+#   - Portainer / otro PC de la LAN sin código: este fichero NO está ahí y
+#     Compose usará solo docker-compose.yml (imágenes ya cargadas con docker load).
+# ==============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # En tu máquina usa la arquitectura nativa (arm64 en Apple Silicon, amd64
+    # en Intel) para que el build y la ejecución sean rápidos. Cuando quieras
+    # exportar a otro sistema, usa scripts/export-docker-tar.sh (linux/amd64).
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
