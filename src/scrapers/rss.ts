@@ -2,6 +2,7 @@ import { XMLParser } from "fast-xml-parser";
 import * as cheerio from "cheerio";
 import type { NewsItem, ScrapeSource, ScrapeResult } from "../types";
 import { MAX_AGE_DAYS } from "../db";
+import { normalizePublicHttpUrl } from "../url-safety";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -55,17 +56,17 @@ const htmlToText = (html: string, maxLen = 320): string => {
 /**
  * Intenta extraer la primera imagen de un bloque HTML.
  */
-const extractImageFromHtml = (html: string): string => {
+const extractImageFromHtml = (html: string, baseUrl: string): string => {
   if (!html) return "";
   const $ = cheerio.load(`<root>${html}</root>`);
   const src = $("img").first().attr("src");
-  return src ?? "";
+  return normalizePublicHttpUrl(src, baseUrl);
 };
 
 /**
  * Intenta extraer la imagen del item RSS probando los campos más habituales.
  */
-const extractImage = (item: Record<string, unknown>): string => {
+const extractImage = (item: Record<string, unknown>, baseUrl: string): string => {
   const candidates: unknown[] = [
     item["media:content"],
     item["media:thumbnail"],
@@ -78,12 +79,12 @@ const extractImage = (item: Record<string, unknown>): string => {
     if (!candidate) continue;
     if (Array.isArray(candidate)) {
       for (const c of candidate) {
-        const url = toText(c);
-        if (url.startsWith("http")) return url;
+        const url = normalizePublicHttpUrl(toText(c), baseUrl);
+        if (url) return url;
       }
     } else {
-      const url = toText(candidate);
-      if (url.startsWith("http")) return url;
+      const url = normalizePublicHttpUrl(toText(candidate), baseUrl);
+      if (url) return url;
     }
   }
 
@@ -96,7 +97,7 @@ const extractImage = (item: Record<string, unknown>): string => {
 
   for (const blob of htmlBlobs) {
     if (!blob) continue;
-    const img = extractImageFromHtml(blob);
+    const img = extractImageFromHtml(blob, baseUrl);
     if (img) return img;
   }
 
@@ -167,7 +168,7 @@ export const fetchRssFeed = async (source: ScrapeSource): Promise<ScrapeResult> 
     const items: NewsItem[] = itemsArr
       .map((item) => {
         const title = toText(item.title).trim();
-        const link = extractLink(item).trim();
+        const link = normalizePublicHttpUrl(extractLink(item));
         if (!title || !link) return null;
 
         const rawDescription =
@@ -203,7 +204,7 @@ export const fetchRssFeed = async (source: ScrapeSource): Promise<ScrapeResult> 
           title: cleanTitle,
           description: cleanDescription,
           link,
-          image: isGoogleNewsLink ? "" : extractImage(item),
+          image: isGoogleNewsLink ? "" : extractImage(item, link),
           pubDate: pubDateIso,
           language: source.language,
           category: source.category,

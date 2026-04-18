@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Category, Language, NewsItem, StoredNewsItem } from "./types";
+import { normalizePublicHttpUrl } from "./url-safety";
 
 const DB_PATH = process.env.DB_PATH ?? "./data/news.db";
 
@@ -79,12 +80,15 @@ export const insertNews = (items: NewsItem[]): number => {
   const insertMany = db.transaction((rows: NewsItem[]) => {
     let inserted = 0;
     for (const row of rows) {
+      const link = normalizePublicHttpUrl(row.link);
+      if (!link) continue;
+
       const res = stmt.run({
         $source: row.source,
         $title: row.title,
         $description: row.description,
-        $link: row.link,
-        $image: row.image,
+        $link: link,
+        $image: normalizePublicHttpUrl(row.image) || "",
         $pub_date: row.pubDate,
         $scraped_at: scrapedAt,
         $scrape_day: scrapeDay,
@@ -118,8 +122,8 @@ const mapRow = (row: RawNewsRow): StoredNewsItem => ({
   source: row.source,
   title: row.title,
   description: row.description,
-  link: row.link,
-  image: row.image,
+  link: normalizePublicHttpUrl(row.link),
+  image: normalizePublicHttpUrl(row.image),
   pubDate: row.pub_date,
   scrapedAt: row.scraped_at,
   scrapeDay: row.scrape_day,

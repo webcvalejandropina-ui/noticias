@@ -1,25 +1,34 @@
 # syntax=docker/dockerfile:1.6
 
 ############################################################
-# Stage 1 — Build (SSR bundle)
+# Stage 1 — Dependencies locked by pnpm-lock.yaml
 ############################################################
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS deps
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+ENV ASTRO_TELEMETRY_DISABLED=1
+ENV PNPM_CONFIG_UPDATE_NOTIFIER=false
+
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+############################################################
+# Stage 2 — Build (SSR bundle)
+############################################################
+FROM deps AS builder
 
 COPY tsconfig.json astro.config.mjs ./
 COPY public ./public
 COPY src ./src
 
-RUN npm run build
+RUN pnpm build
 
 ############################################################
-# Stage 2 — Runtime
+# Stage 3 — Runtime
 ############################################################
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 
 WORKDIR /app
 
@@ -30,8 +39,7 @@ ENV NODE_ENV=production \
     PORT=4321
 
 COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
-
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 RUN addgroup -S astro && adduser -S astro -G astro \

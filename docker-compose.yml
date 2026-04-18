@@ -95,7 +95,7 @@ services:
       - ai-news-data:/app/data
     networks:
       - ai-news-net
-    entrypoint: ["bun", "run", "src/cli/scrape.ts"]
+    entrypoint: ["bun", "src/cli/scrape.ts"]
     profiles:
       - scrape
 

@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
-COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile
+ENV PNPM_CONFIG_UPDATE_NOTIFIER=false
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
 
 FROM oven/bun:1-alpine AS runner
 WORKDIR /app
@@ -16,7 +18,7 @@ ENV PORT=13100
 ENV DB_PATH=/app/data/news.db
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json bun.lock* bunfig.toml tsconfig.json ./
+COPY package.json tsconfig.json ./
 COPY src ./src
 
 RUN mkdir -p /app/data && chown -R bun:bun /app
@@ -28,4 +30,4 @@ EXPOSE 13100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -q -O /dev/null http://127.0.0.1:13100/health || exit 1
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "src/index.ts"]

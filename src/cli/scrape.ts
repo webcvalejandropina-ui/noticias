@@ -9,10 +9,10 @@ import {
 
 /**
  * CLI de scraping. Uso:
- *   bun run scrape                -> todas las fuentes
- *   bun run scrape es             -> todas las fuentes en español
- *   bun run scrape es ia          -> solo español + IA
- *   bun run scrape en ia          -> solo inglés + IA
+ *   pnpm scrape                -> todas las fuentes
+ *   pnpm scrape es             -> todas las fuentes en español
+ *   pnpm scrape es ia          -> solo español + IA
+ *   pnpm scrape en ia          -> solo inglés + IA
  */
 
 const [langArg, catArg] = process.argv.slice(2);

@@ -3,17 +3,19 @@
   "version": "1.0.0",
   "description": "API en Bun que hace scraping de noticias de IA desde 9 fuentes y las cachea en SQLite",
   "type": "module",
+  "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "dev": "bun --watch run src/index.ts",
-    "start": "bun run src/index.ts",
-    "scrape": "bun run src/cli/scrape.ts"
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "scrape": "bun src/cli/scrape.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "cheerio": "^1.0.0",
-    "fast-xml-parser": "^4.5.1"
+    "cheerio": "^1.2.0",
+    "fast-xml-parser": "^5.7.1"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.6.3"
+    "@types/bun": "^1.3.12",
+    "typescript": "^6.0.3"
   }
 }

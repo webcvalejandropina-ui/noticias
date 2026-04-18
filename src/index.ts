@@ -40,7 +40,9 @@ const ADMIN_ROUTES_OPEN = process.env.ALLOW_OPEN_ADMIN_ROUTES === "1";
 
 const adminRouteEpilog = ADMIN_ROUTES_OPEN
   ? " (rutas admin abiertas: ALLOW_OPEN_ADMIN_ROUTES=1)"
-  : " (Authorization: Bearer …, X-Admin-Token o ?token= con ADMIN_API_TOKEN)";
+  : IS_PRODUCTION
+    ? " (Authorization: Bearer … o X-Admin-Token con ADMIN_API_TOKEN)"
+    : " (Authorization: Bearer …, X-Admin-Token o ?token= con ADMIN_API_TOKEN)";
 
 const parseCorsAllowlist = (): string[] => {
   const raw = process.env.CORS_ALLOWED_ORIGINS?.trim();
@@ -66,12 +68,10 @@ const corsHeadersFor = (req: Request): Record<string, string> => {
     return h;
   }
 
-  if (list.includes("*")) {
-    h["Access-Control-Allow-Origin"] = "*";
-    return h;
-  }
+  // En producción ignoramos wildcards aunque alguien los configure por error.
+  const allowedOrigins = list.filter((entry) => entry !== "*");
 
-  if (origin && list.includes(origin)) {
+  if (origin && allowedOrigins.includes(origin)) {
     h["Access-Control-Allow-Origin"] = origin;
     h["Vary"] = "Origin";
   }
@@ -94,7 +94,8 @@ const json = (req: Request, data: unknown, status = 200): Response =>
 
 /**
  * Rutas que modifican scraping / BD. Por defecto exigen ADMIN_API_TOKEN
- * (Bearer, X-Admin-Token o ?token=). Opt-in explícito a abrirlas: ALLOW_OPEN_ADMIN_ROUTES=1.
+ * (Bearer o X-Admin-Token; ?token= solo se acepta fuera de producción).
+ * Opt-in explícito a abrirlas: ALLOW_OPEN_ADMIN_ROUTES=1.
  */
 const assertAdminAuthorized = (req: Request): Response | null => {
   if (ADMIN_ROUTES_OPEN) return null;
@@ -114,7 +115,9 @@ const assertAdminAuthorized = (req: Request): Response | null => {
   const auth = req.headers.get("Authorization");
   const bearer = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   const header = req.headers.get("X-Admin-Token")?.trim() ?? "";
-  const q = new URL(req.url).searchParams.get("token")?.trim() ?? "";
+  const q = IS_PRODUCTION
+    ? ""
+    : new URL(req.url).searchParams.get("token")?.trim() ?? "";
   const ok =
     (bearer.length > 0 && bearer === ADMIN_TOKEN) ||
     (header.length > 0 && header === ADMIN_TOKEN) ||

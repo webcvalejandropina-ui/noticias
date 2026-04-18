@@ -40,18 +40,19 @@ En `/es/news/ia` (y también en `/en/news/ia`) se garantiza que **todos los día
 
 ## Requisitos
 
-- [Bun](https://bun.sh) ≥ 1.1 (para desarrollo local), **o**
-- Docker / Docker Compose (para ejecutar sin instalar Bun)
+- [pnpm](https://pnpm.io/) ≥ 9 para instalar y ejecutar scripts
+- [Bun](https://bun.sh) ≥ 1.1 como runtime local de la API
+- Docker / Docker Compose (para ejecutar sin instalar pnpm ni Bun localmente)
 
 ## Ejecución local
 
 ```bash
-bun install
-bun run dev        # desarrollo con hot reload
-bun run start      # producción
-bun run scrape     # scraping manual (todos los idiomas/categorías)
-bun run scrape es ia       # solo español + IA
-bun run scrape es futbol   # solo español + fútbol
+pnpm install
+pnpm dev              # desarrollo con hot reload
+pnpm start            # producción
+pnpm scrape           # scraping manual (todos los idiomas/categorías)
+pnpm scrape es ia     # solo español + IA
+pnpm scrape es futbol # solo español + fútbol
 ```
 
 La API arranca en `http://localhost:3000` (configurable con `PORT`).
@@ -149,8 +150,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 - **`PUBLIC_API_URL`**: URL HTTPS (o HTTP interno detrás de un proxy) con la que el **navegador** llama al API; debe ser la misma que uses en el dominio público.
-- **`ADMIN_API_TOKEN`**: obligatorio en producción. Protege `GET /refresh`, `GET /sync`, `GET /enrich`, `GET /cleanup` y las rutas `/:lang/sync` y `/:lang/refresh/:category`. Uso: cabecera `Authorization: Bearer <token>` o `X-Admin-Token: <token>`. El cron con `docker compose --profile scrape run` **no** pasa por HTTP; no necesita el token.
-- **`CORS_ALLOWED_ORIGINS`**: orígenes permitidos para peticiones al API desde el navegador (p. ej. la URL del frontend). En producción, si está vacío, **no** se envía `Access-Control-Allow-Origin: *` (más seguro). El frontend Astro hace `fetch` en SSR hacia `http://api:13100`, así que sigue funcionando sin CORS abierto.
+- **`ADMIN_API_TOKEN`**: obligatorio en producción. Protege `GET /refresh`, `GET /sync`, `GET /enrich`, `GET /cleanup` y las rutas `/:lang/sync` y `/:lang/refresh/:category`. Uso: cabecera `Authorization: Bearer <token>` o `X-Admin-Token: <token>`; en producción no se acepta `?token=` para evitar filtraciones en logs/historial. El cron con `docker compose --profile scrape run` **no** pasa por HTTP; no necesita el token.
+- **`CORS_ALLOWED_ORIGINS`**: orígenes permitidos para peticiones al API desde el navegador (p. ej. la URL del frontend). En producción, si está vacío, **no** se envía `Access-Control-Allow-Origin: *` (más seguro), y los wildcards se ignoran aunque se configuren por error. El frontend Astro hace `fetch` en SSR hacia `http://api:13100`, así que sigue funcionando sin CORS abierto.
 
 Recomendado delante del VPS: **Caddy** o **nginx** con TLS, limitando exposición de puertos al 443 (y proxy interno a `frontend:4321` y `api:13100` si quieres un solo host; en el compose actual ambos puertos se publican en el host para simplicidad).
 
@@ -163,7 +164,7 @@ Nunca uses `:latest` en producción; rotar `TAG` te da rollbacks triviales.
 | `docker-compose.yml` por defecto | `development` | Abiertas (cómodo en local) | `*` |
 | `docker-compose.prod.yml` | `production` | Requieren `ADMIN_API_TOKEN` | Lista en `CORS_ALLOWED_ORIGINS` o estricto |
 
-Cabecera en todas las respuestas JSON: `X-Content-Type-Options: nosniff`. Los errores 500 en producción no incluyen el mensaje interno en el JSON.
+Cabecera en todas las respuestas JSON: `X-Content-Type-Options: nosniff`. Los errores 500 en producción no incluyen el mensaje interno en el JSON. Los enlaces e imágenes que llegan desde RSS se normalizan y solo se almacenan/renderizan si son URLs públicas `http`/`https` (sin `javascript:`, `data:`, localhost ni redes privadas).
 
 El stack tiene tres servicios:
 
@@ -183,7 +184,7 @@ Variables de entorno soportadas (definibles en un `.env`):
 | `SCRAPE_ON_START` | `1` | Si es `1`, dispara un scraping global en segundo plano al arrancar el API |
 | `APP_ENV` | `development` (compose base) / `production` (prod) | Activa protección de rutas admin y CORS estricto en producción |
 | `ADMIN_API_TOKEN` | vacío (dev) / obligatorio (prod) | Token para `/refresh`, `/sync`, `/enrich`, `/cleanup` y variantes |
-| `CORS_ALLOWED_ORIGINS` | vacío | En prod: lista separada por comas de orígenes permitidos; vacío = sin wildcard |
+| `CORS_ALLOWED_ORIGINS` | vacío | En prod: lista separada por comas de orígenes permitidos; vacío = sin wildcard, `*` se ignora |
 | `DB_PATH` | `/app/data/news.db` | Ruta al fichero SQLite (contenedor API) |
 | `TZ` | `Europe/Madrid` | Zona horaria de los contenedores |
 
@@ -286,7 +287,7 @@ El campo `link UNIQUE` evita duplicados entre scrapings. Al abrir una DB vieja (
 
 ## Frontend (Astro SSR)
 
-El frontend vive en `frontend/` y se construye con **Astro 5** (adaptador `@astrojs/node` en modo standalone). El sistema de diseño sigue `DESIGN.md` (inspirado en PlayStation.com): negro → blanco → azul, SST-alike en weight 300 para displays, botones pill con signature hover cyan + ring azul + scale.
+El frontend vive en `frontend/` y se construye con **Astro 6** (adaptador `@astrojs/node` en modo standalone). El sistema de diseño sigue `DESIGN.md` (inspirado en PlayStation.com): negro → blanco → azul, SST-alike en weight 300 para displays, botones pill con signature hover cyan + ring azul + scale.
 
 Qué incluye:
 
@@ -301,17 +302,17 @@ Ejecución local del frontend (sin Docker):
 
 ```bash
 cd frontend
-bun install
-API_URL=http://localhost:13100 bun run build
-API_URL=http://localhost:13100 bun ./dist/server/entry.mjs   # o `bun run start` con node 20
+pnpm install
+API_URL=http://localhost:13100 pnpm build
+API_URL=http://localhost:13100 pnpm start
 ```
 
 ## Estructura del proyecto
 
 ```
 .
-├── bunfig.toml
 ├── package.json
+├── pnpm-lock.yaml
 ├── tsconfig.json
 ├── Dockerfile                  # imagen API (Bun)
 ├── docker-compose.yml          # dev / LAN / Portainer (build local + reuso)
@@ -329,17 +330,18 @@ API_URL=http://localhost:13100 bun ./dist/server/entry.mjs   # o `bun run start`
 │   ├── db.ts                   # SQLite: esquema + migraciones + queries filtradas
 │   ├── types.ts                # Tipos compartidos
 │   ├── cli/
-│   │   └── scrape.ts           # CLI: `bun run scrape [idioma] [categoria]`
+│   │   └── scrape.ts           # CLI: `pnpm scrape [idioma] [categoria]`
 │   └── scrapers/
 │       ├── index.ts            # Orquestador + cache por bucket + fairness
 │       ├── sources.ts          # Fuentes configuradas (21)
 │       ├── rss.ts              # Parser RSS/Atom + filtro por keywords
 │       └── og-image.ts         # Extractor de og:image
 └── frontend/                   # Frontend Astro SSR
-    ├── Dockerfile              # imagen Astro (Node 20)
+    ├── Dockerfile              # imagen Astro (build con pnpm, runtime Node 24)
     ├── astro.config.mjs
     ├── tsconfig.json
     ├── package.json
+    ├── pnpm-lock.yaml
     ├── public/
     │   └── favicon.svg
     └── src/

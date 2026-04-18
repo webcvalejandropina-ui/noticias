@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { normalizePublicHttpUrl } from "../url-safety";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -34,19 +35,20 @@ const BAD_IMAGE_PATTERNS: RegExp[] = [
 ];
 
 export const isBadImage = (url: string | undefined | null): boolean => {
-  if (!url) return true;
-  const trimmed = url.trim();
-  if (!trimmed) return true;
-  if (!/^https?:\/\//i.test(trimmed)) return true;
-  return BAD_IMAGE_PATTERNS.some((p) => p.test(trimmed));
+  const safeUrl = normalizePublicHttpUrl(url);
+  if (!safeUrl) return true;
+  return BAD_IMAGE_PATTERNS.some((p) => p.test(safeUrl));
 };
 
 /**
  * Detecta URLs de Google News que en realidad son un redirect hacia el
  * artículo real en la web del medio.
  */
-const isGoogleNewsUrl = (url: string): boolean =>
-  /(?:^|\/\/)news\.google\.com\//i.test(url);
+const isGoogleNewsUrl = (url: string): boolean => {
+  const safeUrl = normalizePublicHttpUrl(url);
+  if (!safeUrl) return false;
+  return new URL(safeUrl).hostname.toLowerCase() === "news.google.com";
+};
 
 /**
  * A partir del HTML intermedio que sirve Google News cuando pinchas un
@@ -92,9 +94,11 @@ const extractGoogleNewsRedirect = (html: string): string | null => {
  * del artículo. Si no se puede, devuelve la URL original.
  */
 export const resolveArticleUrl = async (url: string): Promise<string> => {
-  if (!isGoogleNewsUrl(url)) return url;
+  const safeInput = normalizePublicHttpUrl(url);
+  if (!safeInput) return "";
+  if (!isGoogleNewsUrl(safeInput)) return safeInput;
 
-  let current = url;
+  let current = safeInput;
   for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
     try {
       const res = await fetch(current, {
@@ -103,14 +107,18 @@ export const resolveArticleUrl = async (url: string): Promise<string> => {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
 
-      const finalUrl = res.url || current;
+      const finalUrl = normalizePublicHttpUrl(res.url || current);
+      if (!finalUrl) return current;
       if (!isGoogleNewsUrl(finalUrl)) return finalUrl;
 
       const contentType = res.headers.get("content-type") ?? "";
       if (!contentType.includes("html")) return finalUrl;
 
       const html = await res.text();
-      const next = extractGoogleNewsRedirect(html);
+      const next = normalizePublicHttpUrl(
+        extractGoogleNewsRedirect(html),
+        finalUrl,
+      );
       if (!next) return finalUrl;
 
       if (!isGoogleNewsUrl(next)) return next;
@@ -126,17 +134,7 @@ export const resolveArticleUrl = async (url: string): Promise<string> => {
  * Resuelve una URL relativa a absoluta usando el `base` como origen.
  */
 const absolutize = (src: string, base: string): string => {
-  if (!src) return "";
-  const trimmed = src.trim();
-  if (!trimmed) return "";
-  if (/^data:/i.test(trimmed)) return "";
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  try {
-    return new URL(trimmed, base).toString();
-  } catch {
-    return "";
-  }
+  return normalizePublicHttpUrl(src, base);
 };
 
 /**
@@ -271,6 +269,7 @@ const pickOgImage = (html: string, base: string): string => {
 export const fetchOgImage = async (url: string): Promise<string> => {
   try {
     const targetUrl = await resolveArticleUrl(url);
+    if (!targetUrl) return "";
 
     const res = await fetch(targetUrl, {
       headers: STANDARD_HEADERS,
@@ -287,7 +286,7 @@ export const fetchOgImage = async (url: string): Promise<string> => {
     const html =
       fullHtml.length > MAX_HTML_BYTES ? fullHtml.slice(0, MAX_HTML_BYTES) : fullHtml;
 
-    const base = res.url || targetUrl;
+    const base = normalizePublicHttpUrl(res.url || targetUrl) || targetUrl;
     return pickOgImage(html, base);
   } catch {
     return "";
@@ -305,8 +304,9 @@ export const buildScreenshotUrl = (
   url: string,
   width = 1280,
 ): string => {
-  if (!/^https?:\/\//i.test(url)) return "";
-  return `https://s.wordpress.com/mshots/v1/${encodeURIComponent(url)}?w=${width}`;
+  const safeUrl = normalizePublicHttpUrl(url);
+  if (!safeUrl) return "";
+  return `https://s.wordpress.com/mshots/v1/${encodeURIComponent(safeUrl)}?w=${width}`;
 };
 
 /**
