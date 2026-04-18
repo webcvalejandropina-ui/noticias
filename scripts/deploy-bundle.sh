@@ -8,6 +8,7 @@ cd "$ROOT"
 
 if [ ! -f noticias-docker-images.tar ]; then
   echo "ERROR: noticias-docker-images.tar no existe en este directorio." >&2
+  echo "Si estas en Portainer, no uses este script: importa los dos archivos noticias-*-image.tar y crea un Stack." >&2
   exit 1
 fi
 

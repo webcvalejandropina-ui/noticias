@@ -110,7 +110,16 @@ plantilla `.env` y scripts de despliegue para Linux/macOS y Windows.
 powershell -ExecutionPolicy Bypass -File scripts/package-deploy.ps1   # Windows
 ```
 
-Se crea `noticias-deploy.tar.gz`. Copia ese fichero al equipo destino y ejecuta:
+Se crean estos artefactos:
+
+| Archivo | Uso |
+|---------|-----|
+| `noticias-deploy.tar.gz` | Bundle completo para terminal Linux/macOS/Windows. No lo subas a `Images > Import image` en Portainer. |
+| `noticias-docker-images.tar` | Archivo combinado para `docker load -i noticias-docker-images.tar`. |
+| `noticias-api-image.tar` | Imagen individual para Portainer UI: usar image name `ai-news-api:latest`. |
+| `noticias-frontend-image.tar` | Imagen individual para Portainer UI: usar image name `ai-news-frontend:latest`. |
+
+Copia `noticias-deploy.tar.gz` al equipo destino y ejecuta:
 
 ```bash
 tar -xzf noticias-deploy.tar.gz
@@ -126,17 +135,33 @@ cd noticias-deploy
 powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 ```
 
-En **Portainer** (`Stacks → Add stack → Web editor`):
+En **Portainer**, no subas `noticias-deploy.tar.gz` en `Images → Import image`.
+Esa pantalla espera una imagen Docker directa y por eso pide `Image name`.
 
-1. Descomprime `noticias-deploy.tar.gz`.
-2. Ejecuta `docker load -i noticias-docker-images.tar` en el host Docker.
-3. Pega el contenido de `docker-compose.yml`.
-4. En **Environment variables** añade al menos:
+Flujo recomendado en Portainer UI:
+
+1. Ve a `Images → Import image`.
+2. Selecciona `noticias-api-image.tar`.
+3. En `Advanced mode`, usa image name `ai-news-api:latest` y pulsa `Upload`.
+4. Repite con `noticias-frontend-image.tar` usando image name `ai-news-frontend:latest`.
+5. Ve a `Stacks → Add stack → Web editor`.
+6. Pega el contenido de `docker-compose.yml`.
+7. En **Environment variables** añade al menos:
    ```
    PUBLIC_API_URL=http://192.168.1.128:13100
    ```
    (IP real del host Docker; `:13100` es el puerto del API).
-5. Deploy.
+8. Deploy.
+
+Si tienes shell en el host de Portainer, también puedes descomprimir el bundle
+y cargar ambas imágenes de una vez:
+
+```bash
+tar -xzf noticias-deploy.tar.gz
+cd noticias-deploy
+docker load -i noticias-docker-images.tar
+docker compose up -d
+```
 
 Si prefieres el flujo manual antiguo, puedes seguir generando solo el `.tar`
 de imágenes:
@@ -163,7 +188,7 @@ En **Portainer** con el flujo manual:
    (IP real del host Docker; `:13100` es el puerto del API).
 3. Deploy.
 
-Portainer no construirá nada: la imagen ya está en el daemon porque hiciste `docker load` previamente.
+Portainer no construirá nada: las imágenes ya están en el daemon porque las importaste o hiciste `docker load` previamente.
 
 > **`Exec format error` / `tini … failed`** = arquitectura incorrecta. Regenera el `.tar` con el script: fuerza `linux/amd64` mediante `docker buildx --platform linux/amd64`.
 

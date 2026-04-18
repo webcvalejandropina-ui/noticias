@@ -6,6 +6,9 @@
 #
 # Output:
 #   noticias-deploy.tar.gz
+#   noticias-docker-images.tar
+#   noticias-api-image.tar
+#   noticias-frontend-image.tar
 
 set -eu
 
@@ -19,6 +22,9 @@ DIST_ROOT="${ROOT}/dist-deploy"
 BUNDLE_DIR="${DIST_ROOT}/noticias-deploy"
 ARCHIVE="${ROOT}/noticias-deploy.tar.gz"
 IMAGES_TAR="${BUNDLE_DIR}/noticias-docker-images.tar"
+ROOT_IMAGES_TAR="${ROOT}/noticias-docker-images.tar"
+ROOT_API_TAR="${ROOT}/noticias-api-image.tar"
+ROOT_FRONTEND_TAR="${ROOT}/noticias-frontend-image.tar"
 
 if ! docker buildx version >/dev/null 2>&1; then
   echo "ERROR: Docker Buildx es obligatorio (Docker Desktop o docker-buildx-plugin)." >&2
@@ -33,7 +39,7 @@ fi
 docker buildx inspect --bootstrap >/dev/null 2>&1 || true
 
 mkdir -p "$DIST_ROOT"
-rm -rf "$BUNDLE_DIR" "$ARCHIVE"
+rm -rf "$BUNDLE_DIR" "$ARCHIVE" "$ROOT_IMAGES_TAR" "$ROOT_API_TAR" "$ROOT_FRONTEND_TAR"
 mkdir -p "$BUNDLE_DIR"
 
 echo "==> buildx $PLATFORM  $API_IMG"
@@ -74,6 +80,17 @@ cd noticias-deploy
 powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 ```
 
+## Portainer UI
+
+No subas `noticias-deploy.tar.gz` en `Images > Import image`: ese archivo es
+un paquete completo, no una imagen Docker directa.
+
+Para Portainer, usa estos archivos del bundle:
+
+1. `noticias-api-image.tar` con image name `ai-news-api:latest`
+2. `noticias-frontend-image.tar` con image name `ai-news-frontend:latest`
+3. Despues crea un Stack pegando `docker-compose.yml`
+
 ## LAN / otro equipo
 
 Antes de ejecutar el deploy, edita `.env` si el navegador accedera desde otro
@@ -91,10 +108,23 @@ EOF
 
 echo "==> docker save -> $IMAGES_TAR"
 docker save "$API_IMG" "$FE_IMG" -o "$IMAGES_TAR"
+cp "$IMAGES_TAR" "$ROOT_IMAGES_TAR"
+
+echo "==> portainer image tar -> $ROOT_API_TAR"
+docker save "$API_IMG" -o "$ROOT_API_TAR"
+cp "$ROOT_API_TAR" "$BUNDLE_DIR/noticias-api-image.tar"
+
+echo "==> portainer image tar -> $ROOT_FRONTEND_TAR"
+docker save "$FE_IMG" -o "$ROOT_FRONTEND_TAR"
+cp "$ROOT_FRONTEND_TAR" "$BUNDLE_DIR/noticias-frontend-image.tar"
 
 echo "==> tar.gz -> $ARCHIVE"
 tar -czf "$ARCHIVE" -C "$DIST_ROOT" noticias-deploy
 
-ls -lh "$ARCHIVE" "$IMAGES_TAR"
+ls -lh "$ARCHIVE" "$ROOT_IMAGES_TAR" "$ROOT_API_TAR" "$ROOT_FRONTEND_TAR"
 echo ""
 echo "Bundle listo: $ARCHIVE"
+echo "Portainer UI:"
+echo "  1) Sube noticias-api-image.tar como ai-news-api:latest"
+echo "  2) Sube noticias-frontend-image.tar como ai-news-frontend:latest"
+echo "  3) Crea un Stack con docker-compose.yml"

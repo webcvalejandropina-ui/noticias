@@ -6,7 +6,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 
 if (-not (Test-Path "noticias-docker-images.tar")) {
-  throw "noticias-docker-images.tar no existe en este directorio."
+  throw "noticias-docker-images.tar no existe en este directorio. Si estas en Portainer, importa los dos archivos noticias-*-image.tar y crea un Stack."
 }
 
 if (-not (Test-Path "docker-compose.yml")) {
