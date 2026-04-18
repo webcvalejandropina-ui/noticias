@@ -27,3 +27,5 @@ preview-local.png
 
 # Export Docker local (docker save)
 noticias-docker-images.tar
+noticias-deploy.tar.gz
+dist-deploy/
