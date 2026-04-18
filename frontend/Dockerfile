@@ -16,7 +16,7 @@ ENV PORT=4321
 EXPOSE 4321
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-  CMD wget --spider -q http://127.0.0.1:4321/ || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:4321/ || exit 1
 
 USER node
 CMD ["node", "./dist/server/entry.mjs"]

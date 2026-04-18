@@ -22,6 +22,6 @@ ENV DB_PATH=/app/data/news.db
 EXPOSE 13100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --spider -q http://127.0.0.1:13100/health || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:13100/health || exit 1
 
 CMD ["bun", "run", "src/index.ts"]
