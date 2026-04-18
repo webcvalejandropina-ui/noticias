@@ -1,0 +1,285 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Hero from "../components/Hero.astro";
+import FilterBar from "../components/FilterBar.astro";
+import NewsGrid from "../components/NewsGrid.astro";
+import Pagination from "../components/Pagination.astro";
+import DigestSection from "../components/DigestSection.astro";
+import Footer from "../components/Footer.astro";
+import {
+  fetchBrowse,
+  fetchDigest,
+  fetchGeneral,
+  getPublicApiUrl,
+} from "../lib/api";
+import { UI_TEXT, categoryLabel } from "../lib/constants";
+import { parseState } from "../lib/url";
+import type {
+  BrowseResponse,
+  DigestResponse,
+  GeneralResponse,
+} from "../lib/types";
+
+const state = parseState(Astro.url);
+const t = UI_TEXT[state.language];
+
+const PAGE_SIZE = 12;
+const DIGEST_PER_CATEGORY = 4;
+const GENERAL_LIMIT = 20;
+
+let browseData: BrowseResponse | null = null;
+let digestData: DigestResponse | null = null;
+let generalData: GeneralResponse | null = null;
+let fetchError: string | null = null;
+
+try {
+  if (state.view === "digest") {
+    digestData = await fetchDigest(state.language, DIGEST_PER_CATEGORY);
+  } else if (state.view === "general") {
+    generalData = await fetchGeneral(state.language, GENERAL_LIMIT);
+  } else {
+    browseData = await fetchBrowse({
+      language: state.language,
+      category: state.category,
+      page: state.page,
+      pageSize: PAGE_SIZE,
+      q: state.q || undefined,
+      source: state.source || undefined,
+    });
+  }
+} catch (err) {
+  fetchError = err instanceof Error ? err.message : String(err);
+}
+
+const news = browseData?.news ?? [];
+const total = browseData?.total ?? 0;
+const totalPages = browseData?.totalPages ?? 1;
+const sources = browseData?.sources ?? [];
+
+const digestSections = digestData?.sections ?? [];
+const digestTotal = digestSections.reduce((acc, s) => acc + s.total, 0);
+const digestSourcesCount = digestSections.length;
+
+const generalNews = generalData?.news ?? [];
+const generalTotal = generalNews.length;
+const generalSourcesCount = new Set(generalNews.map((n) => n.source)).size;
+
+const heroTotal =
+  state.view === "digest"
+    ? digestTotal
+    : state.view === "general"
+      ? generalTotal
+      : total;
+const heroSources =
+  state.view === "digest"
+    ? digestSourcesCount
+    : state.view === "general"
+      ? generalSourcesCount
+      : sources.length;
+
+const pageTitle =
+  state.view === "digest"
+    ? `AI News · ${t.digest}`
+    : state.view === "general"
+      ? `AI News · ${t.general}`
+      : `AI News · ${categoryLabel(state.category, state.language)}`;
+---
+
+<Layout title={pageTitle}>
+  <Header language={state.language} category={state.category} />
+  <Hero
+    language={state.language}
+    category={state.category}
+    total={heroTotal}
+    sourcesCount={heroSources}
+    mode={state.view}
+  />
+  <FilterBar state={state} sources={sources} />
+
+  <main class="main surface-light-gradient">
+    <div class="container main__inner">
+      {
+        fetchError && (
+          <div class="main__error" role="alert">
+            <strong>{state.language === "es" ? "Error cargando datos" : "Error loading data"}:</strong>{" "}
+            {fetchError}
+          </div>
+        )
+      }
+
+      {
+        !fetchError && state.view === "digest" && digestData && (
+          <>
+            <header class="main__header">
+              <p class="main__count">
+                <span class="main__count-value">{t.digest}</span>
+                <span class="ps-tag">
+                  {state.language === "es"
+                    ? `${digestSections.length} secciones`
+                    : `${digestSections.length} sections`}
+                </span>
+              </p>
+              <p class="main__page-info">
+                {state.language === "es"
+                  ? `${digestData.perCategory} noticias por categoría`
+                  : `${digestData.perCategory} news per category`}
+              </p>
+            </header>
+
+            {digestSections.length === 0 && (
+              <div class="main__empty">
+                <p class="display-s">{t.empty}</p>
+              </div>
+            )}
+
+            {digestSections.map((section) => (
+              <DigestSection
+                state={state}
+                category={section.category}
+                total={section.total}
+                items={section.news}
+              />
+            ))}
+          </>
+        )
+      }
+
+      {
+        !fetchError && state.view === "general" && generalData && (
+          <>
+            <header class="main__header">
+              <p class="main__count">
+                <span class="main__count-value">{t.general}</span>
+                <span class="ps-tag">
+                  {state.language === "es"
+                    ? `${generalNews.length} noticias al azar`
+                    : `${generalNews.length} random picks`}
+                </span>
+              </p>
+              <p class="main__page-info">{t.generalSubtitle}</p>
+            </header>
+
+            {generalNews.length === 0 ? (
+              <div class="main__empty">
+                <p class="display-s">{t.empty}</p>
+              </div>
+            ) : (
+              <NewsGrid items={generalNews} language={state.language} />
+            )}
+          </>
+        )
+      }
+
+      {
+        !fetchError && state.view === "list" && (
+          <>
+            <header class="main__header">
+              <p class="main__count">
+                <span class="main__count-value">{t.results(total)}</span>
+                {(state.q || state.source) && (
+                  <span class="main__count-filters">
+                    {state.q && (
+                      <span class="ps-tag">
+                        {state.language === "es" ? "Búsqueda" : "Search"}: “{state.q}”
+                      </span>
+                    )}
+                    {state.source && (
+                      <span class="ps-tag">
+                        {state.language === "es" ? "Fuente" : "Source"}: {state.source}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </p>
+              <p class="main__page-info">{t.page(state.page, totalPages)}</p>
+            </header>
+
+            {news.length === 0 && (
+              <div class="main__empty">
+                <p class="display-s">{t.empty}</p>
+              </div>
+            )}
+
+            {news.length > 0 && <NewsGrid items={news} language={state.language} />}
+
+            <Pagination state={state} totalPages={totalPages} />
+          </>
+        )
+      }
+    </div>
+  </main>
+
+  <Footer language={state.language} apiUrl={getPublicApiUrl()} />
+</Layout>
+
+<style>
+  .main {
+    min-height: 60vh;
+  }
+
+  .main__inner {
+    padding: 48px 24px 64px;
+  }
+
+  .main__header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+  }
+
+  .main__count {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .main__count-value {
+    font-size: 1.5rem;
+    font-weight: 300;
+    color: var(--ps-ink);
+    letter-spacing: -0.1px;
+  }
+
+  .main__count-filters {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .main__page-info {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--ps-body-gray);
+    letter-spacing: 0.1px;
+  }
+
+  .main__empty {
+    background: var(--ps-paper);
+    border-radius: var(--ps-r-24);
+    box-shadow: var(--ps-shadow-06);
+    padding: 64px 32px;
+    text-align: center;
+  }
+
+  .main__empty p {
+    color: var(--ps-body-gray);
+    margin: 0;
+  }
+
+  .main__error {
+    background: rgba(200, 27, 58, 0.08);
+    border: 1px solid rgba(200, 27, 58, 0.2);
+    color: var(--ps-warning);
+    padding: 16px 20px;
+    border-radius: var(--ps-r-12);
+    margin-bottom: 32px;
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+</style>

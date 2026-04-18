@@ -1,6 +1,0 @@
-El frontend restaurado solo incluye el artefacto de producción (carpeta dist/) y package.json.
-Para desarrollar con Astro (src/, astro.config.mjs, etc.) hace falta recuperar el código fuente
-desde backup o historial git anterior.
-
-El aviso npm audit de @astrojs/node se corrige actualizando dependencias y ejecutando
-`npm run build` cuando vuelvas a tener el proyecto Astro completo.

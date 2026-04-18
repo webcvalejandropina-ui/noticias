@@ -1,0 +1,141 @@
+---
+import type { Language, NewsItem } from "../lib/types";
+import type { Category } from "../lib/types";
+import NewsCard from "./NewsCard.astro";
+import { categoryLabel, UI_TEXT } from "../lib/constants";
+import { type PageState, buildUrl } from "../lib/url";
+
+interface Props {
+  state: PageState;
+  category: Category;
+  total: number;
+  items: NewsItem[];
+}
+
+const { state, category, total, items } = Astro.props;
+const { language } = state;
+const t = UI_TEXT[language];
+const label = categoryLabel(category, language);
+const viewAllHref = buildUrl(state, { view: "list", category, page: 1, q: "", source: "" });
+---
+
+<section class="digest-section" aria-label={label}>
+  <header class="digest-section__header">
+    <div class="digest-section__title-wrap">
+      <span class="digest-section__kicker">{t.byCategory}</span>
+      <h2 class="digest-section__title">{label}</h2>
+    </div>
+    <div class="digest-section__meta">
+      <span class="ps-tag digest-section__count">{t.results(total)}</span>
+      <a href={viewAllHref} class="ps-btn ps-btn--mini digest-section__view-all">
+        {t.viewAll}
+        <span aria-hidden="true">→</span>
+      </a>
+    </div>
+  </header>
+
+  {
+    items.length === 0 ? (
+      <p class="digest-section__empty">{t.empty}</p>
+    ) : (
+      <div class="digest-section__grid">
+        {items.map((item, idx) => (
+          <NewsCard item={item} language={language} eager={idx < 2} />
+        ))}
+      </div>
+    )
+  }
+</section>
+
+<style>
+  .digest-section {
+    padding: 48px 0 16px;
+    border-top: 1px solid var(--ps-divider);
+  }
+  .digest-section:first-of-type {
+    border-top: none;
+    padding-top: 8px;
+  }
+
+  .digest-section__header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+
+  .digest-section__title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .digest-section__kicker {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--ps-cyan-deep, var(--ps-blue));
+  }
+
+  .digest-section__title {
+    margin: 0;
+    font-size: clamp(1.75rem, 3.2vw, 2.5rem);
+    font-weight: 300;
+    letter-spacing: -0.5px;
+    color: var(--ps-ink);
+    line-height: 1.1;
+  }
+
+  .digest-section__meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .digest-section__count {
+    font-weight: 600;
+  }
+
+  .digest-section__view-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .digest-section__empty {
+    color: var(--ps-body-gray);
+    background: var(--ps-paper);
+    border-radius: var(--ps-r-16);
+    padding: 32px 24px;
+    margin: 0;
+    text-align: center;
+  }
+
+  .digest-section__grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  @media (max-width: 1200px) {
+    .digest-section__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 900px) {
+    .digest-section__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 560px) {
+    .digest-section__grid {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+  }
+</style>

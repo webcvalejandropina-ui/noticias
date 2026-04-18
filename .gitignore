@@ -1,12 +1,20 @@
-.env
-.env.*
-!.env.example
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-api/data/
 node_modules/
-**/node_modules/
-.DS_Store
+.env
+.env.local
+dist/
+*.log
+
+# Astro — caché local del proyecto
 frontend/.astro/
+
+# SQLite y WAL/SHM (se generan en runtime / Docker)
+data/*
+!data/.gitkeep
+
+.DS_Store
+
+# Vista previa generada solo en local (no versionar)
+preview-local.png
+
+# Export Docker local (docker save)
+noticias-docker-images.tar

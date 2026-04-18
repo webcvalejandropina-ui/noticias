@@ -1,0 +1,40 @@
+---
+import type { Language, NewsItem } from "../lib/types";
+import NewsCard from "./NewsCard.astro";
+
+interface Props {
+  items: NewsItem[];
+  language: Language;
+}
+
+const { items, language } = Astro.props;
+---
+
+<div class="news-grid">
+  {
+    items.map((item, idx) => (
+      <NewsCard item={item} language={language} eager={idx < 3} />
+    ))
+  }
+</div>
+
+<style>
+  .news-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  @media (max-width: 1080px) {
+    .news-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .news-grid {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+  }
+</style>
