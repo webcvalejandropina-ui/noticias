@@ -4,6 +4,12 @@ node_modules/
 dist/
 *.log
 
+# Build SSR (se genera en Docker con npm run build; no versionar)
+frontend/dist/
+
+# El frontend usa Bun en repo; npm crea este lock al instalar con npm
+frontend/package-lock.json
+
 # Astro — caché local del proyecto
 frontend/.astro/
 
