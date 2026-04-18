@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+api/data/
+node_modules/
+**/node_modules/
+.DS_Store
+frontend/.astro/

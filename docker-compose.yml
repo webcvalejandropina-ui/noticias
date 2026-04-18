@@ -1,0 +1,51 @@
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: ai-news-api:latest
+    container_name: ai-news-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      NODE_ENV: production
+      PORT: "13100"
+      DB_PATH: /app/data/news.db
+      SCRAPE_ON_START: ${SCRAPE_ON_START:-0}
+    ports:
+      - "13100:13100"
+    volumes:
+      - ai-news-data:/app/data
+    networks:
+      - ai-news-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: ai-news-frontend:latest
+    container_name: ai-news-frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "4321"
+      API_URL: http://api:13100
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:13100}
+    ports:
+      - "4321:4321"
+    networks:
+      - ai-news-net
+
+networks:
+  ai-news-net:
+    name: noticias_ai-news-net
+
+volumes:
+  ai-news-data:
+    name: noticias_ai-news-data
