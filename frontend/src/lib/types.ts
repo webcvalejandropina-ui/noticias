@@ -63,10 +63,13 @@ export interface DigestResponse {
   sections: DigestSection[];
 }
 
+export type GeneralMode = "recent" | "random";
+
 export interface GeneralResponse {
   language: Language;
   day: string;
   limit: number;
+  mode: GeneralMode;
   count: number;
   news: NewsItem[];
 }

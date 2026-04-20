@@ -233,6 +233,116 @@ export const queryRandomMix = (
 };
 
 /**
+ * Timestamp (ms) de una noticia priorizando `pubDate`; si falta o es invalido
+ * cae en `scrapedAt`. Devuelve 0 para fechas no parseables (quedan al final).
+ */
+const newsTimestamp = (item: StoredNewsItem): number => {
+  const pub = Date.parse(item.pubDate);
+  if (Number.isFinite(pub)) return pub;
+  const scraped = Date.parse(item.scrapedAt);
+  return Number.isFinite(scraped) ? scraped : 0;
+};
+
+/**
+ * Muestreo aleatorio ponderado que favorece a los elementos al principio de
+ * la lista (peso 1/(i+1)). Ideal para elegir piezas "recientes con algo de
+ * variedad" sin convertirse en estricto top-N.
+ */
+const weightedRecentPick = <T>(items: T[], n: number): T[] => {
+  if (n <= 0 || items.length === 0) return [];
+  if (items.length <= n) return items.slice();
+
+  const pool = items.slice();
+  const picked: T[] = [];
+
+  while (picked.length < n && pool.length > 0) {
+    let total = 0;
+    const weights = pool.map((_, i) => {
+      const w = 1 / (i + 1);
+      total += w;
+      return w;
+    });
+    let r = Math.random() * total;
+    let idx = 0;
+    for (; idx < weights.length; idx++) {
+      r -= weights[idx]!;
+      if (r <= 0) break;
+    }
+    if (idx >= pool.length) idx = pool.length - 1;
+    picked.push(pool.splice(idx, 1)[0]!);
+  }
+
+  return picked;
+};
+
+/**
+ * Devuelve N noticias de un idioma priorizando las MAS RECIENTES en el
+ * tiempo pero intercalando categorias para que no domine una sola. Para
+ * cada categoria se obtiene un pool de candidatos recientes (varias veces
+ * el cupo asignado), se hace muestreo aleatorio ponderado hacia las mas
+ * recientes y se ordena el resultado global por `pub_date` descendente.
+ * Al final, un pequeno "diversity shuffle" evita 3+ noticias seguidas de
+ * la misma categoria cuando hay alternativas disponibles.
+ */
+export const queryRecentMix = (
+  language: Language,
+  limit: number,
+  categories: Category[],
+): StoredNewsItem[] => {
+  if (categories.length === 0 || limit <= 0) return [];
+
+  const perCategory = Math.max(1, Math.ceil(limit / categories.length));
+  const poolSize = Math.max(perCategory * 4, 12);
+
+  const byCategory = categories.map((category) =>
+    db
+      .prepare<RawNewsRow, [Language, Category, number]>(
+        `
+        SELECT id, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
+        FROM news
+        WHERE language = ? AND category = ?
+        ORDER BY pub_date DESC, id DESC
+        LIMIT ?
+      `,
+      )
+      .all(language, category, poolSize)
+      .map(mapRow),
+  );
+
+  const sampled: StoredNewsItem[] = [];
+  for (const rows of byCategory) {
+    sampled.push(...weightedRecentPick(rows, perCategory));
+  }
+
+  sampled.sort((a, b) => {
+    const diff = newsTimestamp(b) - newsTimestamp(a);
+    if (diff !== 0) return diff;
+    return b.id - a.id;
+  });
+
+  // Diversity pass: evita que aparezcan 3+ noticias consecutivas de la misma
+  // categoria cuando haya otra disponible, preservando el orden temporal
+  // tanto como sea posible.
+  const remaining = sampled.slice();
+  const reordered: StoredNewsItem[] = [];
+  while (remaining.length > 0) {
+    let idx = 0;
+    const n = reordered.length;
+    if (
+      n >= 2 &&
+      reordered[n - 1]!.category === reordered[n - 2]!.category
+    ) {
+      const lastCat = reordered[n - 1]!.category;
+      const alt = remaining.findIndex((item) => item.category !== lastCat);
+      if (alt >= 0) idx = alt;
+    }
+    reordered.push(remaining.splice(idx, 1)[0]!);
+  }
+
+  return reordered.slice(0, limit);
+};
+
+/**
  * Cantidad de noticias almacenadas para unos filtros dados.
  */
 export const countNews = (q: Omit<NewsQuery, "limit" | "offset"> = {}): number => {

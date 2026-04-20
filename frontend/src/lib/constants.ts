@@ -53,7 +53,7 @@ export const UI_TEXT = {
     viewAll: "Ver todas",
     byCategory: "Por categoría",
     general: "General",
-    generalSubtitle: "Una mezcla aleatoria de todas las secciones del día",
+    generalSubtitle: "Lo más reciente de todas las secciones, mezclado por categoría",
   },
   en: {
     search: "Search",
@@ -72,6 +72,6 @@ export const UI_TEXT = {
     viewAll: "View all",
     byCategory: "By category",
     general: "General",
-    generalSubtitle: "A shuffled mix from every section today",
+    generalSubtitle: "The latest from every section, blended by category",
   },
 } as const;

@@ -17,6 +17,7 @@ import {
   purgeOldNews,
   queryNews,
   queryRandomMix,
+  queryRecentMix,
 } from "../db";
 import type { Category, Language, NewsItem, ScrapeSource, StoredNewsItem } from "../types";
 
@@ -583,23 +584,34 @@ export const getDigest = async (
   return { language, day, perCategory, sections };
 };
 
+export type GeneralMode = "recent" | "random";
+
 export interface GeneralResult {
   language: Language;
   day: string;
   limit: number;
+  mode: GeneralMode;
   count: number;
   news: StoredNewsItem[];
 }
 
 /**
- * Feed "General": mezcla aleatoriamente noticias de TODAS las categorías
- * disponibles del idioma pedido, garantizando un mínimo por categoría pero
- * aleatorizando el orden final. Se refresca el scraping por bucket si el
- * cache del día está vencido, igual que en las vistas normales.
+ * Feed "General": mezcla noticias de TODAS las categorías disponibles del
+ * idioma pedido, garantizando un mínimo por categoría.
+ *
+ * - `mode = "recent"` (por defecto): prioriza las MÁS RECIENTES en el
+ *   tiempo, tomando un pool amplio por categoría, muestreo ponderado hacia
+ *   las más frescas y orden final por `pub_date` descendente con un
+ *   pequeño diversity shuffle para evitar rachas de una misma categoría.
+ * - `mode = "random"`: comportamiento clásico, aleatorio puro.
+ *
+ * Se refresca el scraping por bucket si el cache del día está vencido,
+ * igual que en las vistas normales.
  */
 export const getGeneralFeed = async (
   language: Language,
   limit = 20,
+  mode: GeneralMode = "recent",
 ): Promise<GeneralResult> => {
   const categories = Array.from(
     new Set(SOURCES.filter((s) => s.language === language).map((s) => s.category)),
@@ -611,12 +623,16 @@ export const getGeneralFeed = async (
     }
   }
 
-  const news = queryRandomMix(language, limit, categories);
+  const news =
+    mode === "random"
+      ? queryRandomMix(language, limit, categories)
+      : queryRecentMix(language, limit, categories);
 
   return {
     language,
     day: getToday(),
     limit,
+    mode,
     count: news.length,
     news,
   };

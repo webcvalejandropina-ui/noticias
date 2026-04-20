@@ -297,8 +297,8 @@ const server = Bun.serve({
               "Listado paginado con filtros (page, pageSize, q, source) — pensado para UIs",
             "GET /:lang/digest?perCategory=N":
               "Resumen agrupado: N noticias por cada categoría disponible en el idioma",
-            "GET /:lang/general?limit=N":
-              "Feed General: mezcla aleatoriamente hasta 20 noticias de todas las categorías",
+            "GET /:lang/general?limit=N&mode=recent|random":
+              "Feed General: mezcla por categoría; por defecto prioriza las más recientes (mode=recent). mode=random restaura el comportamiento aleatorio puro",
             "GET /:lang/categories": "Categorías disponibles para un idioma",
             "GET /:lang/sources?category=":
               "Fuentes disponibles para un idioma (opcionalmente filtradas por categoría)",
@@ -422,7 +422,9 @@ const server = Bun.serve({
         if (segments.length === 2 && segments[1] === "general") {
           const rawLimit = Number(url.searchParams.get("limit") ?? 20);
           const limit = Math.min(Math.max(Math.floor(rawLimit) || 20, 1), 50);
-          const result = await getGeneralFeed(language, limit);
+          const rawMode = (url.searchParams.get("mode") ?? "recent").toLowerCase();
+          const mode = rawMode === "random" ? "random" : "recent";
+          const result = await getGeneralFeed(language, limit, mode);
           return json(req, result);
         }
 

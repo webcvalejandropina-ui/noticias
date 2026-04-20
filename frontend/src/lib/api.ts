@@ -2,6 +2,7 @@ import type {
   BrowseResponse,
   Category,
   DigestResponse,
+  GeneralMode,
   GeneralResponse,
   Language,
   SourcesResponse,
@@ -95,14 +96,20 @@ export const fetchDigest = async (
 };
 
 /**
- * Feed "General": mezcla aleatoriamente N noticias de todas las categorías
- * disponibles del idioma pedido. Se usa en la nueva pestaña General.
+ * Feed "General": mezcla noticias de todas las categorías del idioma pedido.
+ *
+ * - `mode = "recent"` (por defecto): prioriza las más recientes en el tiempo
+ *   manteniendo una mezcla por categoría (muestreo ponderado hacia lo nuevo
+ *   y pequeño diversity shuffle para evitar rachas de la misma categoría).
+ * - `mode = "random"`: comportamiento antiguo, aleatorio puro.
  */
 export const fetchGeneral = async (
   language: Language,
   limit = 20,
+  mode: GeneralMode = "recent",
 ): Promise<GeneralResponse> => {
-  const url = `${API_URL}/${language}/general?limit=${limit}`;
+  const qs = new URLSearchParams({ limit: String(limit), mode });
+  const url = `${API_URL}/${language}/general?${qs.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) {
     throw new Error(
