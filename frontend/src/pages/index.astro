@@ -87,7 +87,11 @@ const pageTitle =
 ---
 
 <Layout title={pageTitle}>
-  <Header language={state.language} category={state.category} />
+  <Header
+    language={state.language}
+    category={state.category}
+    apiUrl={getPublicApiUrl()}
+  />
   <Hero
     language={state.language}
     category={state.category}
@@ -95,7 +99,7 @@ const pageTitle =
     sourcesCount={heroSources}
     mode={state.view}
   />
-  <FilterBar state={state} sources={sources} />
+  <FilterBar state={state} sources={sources} apiUrl={getPublicApiUrl()} />
 
   <main class="main surface-light-gradient">
     <div class="container main__inner">

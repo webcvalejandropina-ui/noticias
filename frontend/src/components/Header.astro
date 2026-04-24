@@ -1,21 +1,28 @@
 ---
 import type { Language, Category } from "../lib/types";
-import { LANGUAGES } from "../lib/constants";
+import { LANGUAGES, UI_TEXT, CATEGORY_LABELS } from "../lib/constants";
 
 interface Props {
   language: Language;
   category: Category;
+  apiUrl: string;
 }
 
-const { language, category } = Astro.props;
+const { language, category, apiUrl } = Astro.props;
+const t = UI_TEXT[language];
 
 const buildLangHref = (lang: Language): string => {
-  // Al cambiar de idioma, caemos siempre en IA (disponible en ambos)
   const params = new URLSearchParams();
   params.set("lang", lang);
   params.set("cat", "ia");
   return `/?${params.toString()}`;
 };
+
+const categoryLabelsJson = JSON.stringify(
+  Object.fromEntries(
+    Object.entries(CATEGORY_LABELS).map(([k, v]) => [k, v[language]]),
+  ),
+);
 ---
 
 <header class="site-header">
@@ -35,24 +42,293 @@ const buildLangHref = (lang: Language): string => {
       </span>
     </a>
 
-    <nav class="site-header__nav" aria-label="Idioma">
-      {
-        LANGUAGES.map((l) => (
-          <a
-            href={buildLangHref(l.code)}
-            class:list={[
-              "site-header__lang",
-              l.code === language && "is-active",
-            ]}
-            aria-current={l.code === language ? "page" : undefined}
-          >
-            {l.code.toUpperCase()}
-          </a>
-        ))
-      }
-    </nav>
+    <div class="site-header__actions">
+      <button
+        type="button"
+        class="site-header__sources-btn"
+        data-sources-button
+        data-api-url={apiUrl}
+        data-language={language}
+        data-category-labels={categoryLabelsJson}
+        data-i18n-loading={t.sourcesLoading}
+        data-i18n-error={t.sourcesError}
+        data-i18n-empty={t.sourcesEmpty}
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        aria-controls="sources-dialog"
+        title={t.sourcesTitle}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M4 6h16M4 12h16M4 18h10"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          ></path>
+        </svg>
+        <span>{t.sourcesButton}</span>
+      </button>
+
+      <nav class="site-header__nav" aria-label="Idioma">
+        {
+          LANGUAGES.map((l) => (
+            <a
+              href={buildLangHref(l.code)}
+              class:list={[
+                "site-header__lang",
+                l.code === language && "is-active",
+              ]}
+              aria-current={l.code === language ? "page" : undefined}
+            >
+              {l.code.toUpperCase()}
+            </a>
+          ))
+        }
+      </nav>
+    </div>
   </div>
 </header>
+
+<dialog
+  id="sources-dialog"
+  class="sources-dialog"
+  aria-labelledby="sources-dialog-title"
+  data-sources-dialog
+>
+  <div class="sources-dialog__panel">
+    <header class="sources-dialog__header">
+      <div>
+        <h2 id="sources-dialog-title" class="sources-dialog__title">
+          {t.sourcesTitle}
+        </h2>
+        <p class="sources-dialog__subtitle">{t.sourcesSubtitle}</p>
+      </div>
+      <button
+        type="button"
+        class="sources-dialog__close"
+        data-sources-close
+        aria-label={t.sourcesClose}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path
+            d="M6 6l12 12M18 6L6 18"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          ></path>
+        </svg>
+      </button>
+    </header>
+
+    <div class="sources-dialog__body" data-sources-body>
+      <p class="sources-dialog__status" data-sources-status>
+        {t.sourcesLoading}
+      </p>
+    </div>
+
+    <footer class="sources-dialog__footer">
+      <span class="sources-dialog__count" data-sources-count></span>
+      <button
+        type="button"
+        class="sources-dialog__btn sources-dialog__btn--ghost"
+        data-sources-close>{t.sourcesClose}</button>
+    </footer>
+  </div>
+</dialog>
+
+<script>
+  interface ApiSource {
+    name: string;
+    category: string;
+    homepage: string;
+  }
+
+  interface ApiSourcesResponse {
+    language: string;
+    count: number;
+    sources: ApiSource[];
+  }
+
+  const btn = document.querySelector<HTMLButtonElement>("[data-sources-button]");
+  const dlg = document.querySelector<HTMLDialogElement>("[data-sources-dialog]");
+  const body = document.querySelector<HTMLElement>("[data-sources-body]");
+  const countEl = document.querySelector<HTMLElement>("[data-sources-count]");
+  const closeBtns = document.querySelectorAll<HTMLButtonElement>("[data-sources-close]");
+
+  if (!btn || !dlg || !body || !countEl) {
+    throw new Error("Sources dialog: missing elements");
+  }
+
+  const apiUrl = btn.dataset.apiUrl ?? "";
+  const language = btn.dataset.language ?? "es";
+  const labels: Record<string, string> = JSON.parse(
+    btn.dataset.categoryLabels ?? "{}",
+  );
+  const msgLoading = btn.dataset.i18nLoading ?? "Loading…";
+  const msgError = btn.dataset.i18nError ?? "Error loading sources";
+  const msgEmpty = btn.dataset.i18nEmpty ?? "No sources";
+
+  let cache: ApiSourcesResponse | null = null;
+  let loading = false;
+
+  const escape = (s: string): string =>
+    s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const render = (data: ApiSourcesResponse): void => {
+    if (data.sources.length === 0) {
+      body.innerHTML = `<p class="sources-dialog__status">${escape(msgEmpty)}</p>`;
+      countEl.textContent = "";
+      return;
+    }
+
+    const grouped = new Map<string, ApiSource[]>();
+    for (const s of data.sources) {
+      const arr = grouped.get(s.category) ?? [];
+      arr.push(s);
+      grouped.set(s.category, arr);
+    }
+
+    const sections = Array.from(grouped.entries())
+      .map(([category, items]) => {
+        const catLabel = labels[category] ?? category;
+        const rows = items
+          .map((s) => {
+            const host = (() => {
+              try {
+                return new URL(s.homepage).host;
+              } catch {
+                return s.homepage;
+              }
+            })();
+            return `
+              <li class="sources-dialog__item">
+                <a
+                  class="sources-dialog__link"
+                  href="${escape(s.homepage)}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <img
+                    src="https://www.google.com/s2/favicons?domain=${escape(host)}&sz=32"
+                    alt=""
+                    class="sources-dialog__favicon"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                  />
+                  <span class="sources-dialog__link-text">
+                    <span class="sources-dialog__source-name">${escape(s.name)}</span>
+                    <span class="sources-dialog__source-host">${escape(host)}</span>
+                  </span>
+                  <svg class="sources-dialog__external" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path d="M14 4h6v6M10 14L20 4M20 14v6H4V4h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                  </svg>
+                </a>
+              </li>`;
+          })
+          .join("");
+
+        return `
+          <section class="sources-dialog__group">
+            <h3 class="sources-dialog__group-title">
+              <span class="sources-dialog__group-label">${escape(catLabel)}</span>
+              <span class="sources-dialog__group-count">${items.length}</span>
+            </h3>
+            <ul class="sources-dialog__list">${rows}</ul>
+          </section>`;
+      })
+      .join("");
+
+    body.innerHTML = sections;
+    countEl.textContent =
+      language === "es"
+        ? data.count === 1
+          ? "1 fuente"
+          : `${data.count} fuentes`
+        : data.count === 1
+          ? "1 source"
+          : `${data.count} sources`;
+  };
+
+  const load = async (): Promise<void> => {
+    if (cache) {
+      render(cache);
+      return;
+    }
+    if (loading) return;
+    loading = true;
+    body.innerHTML = `<p class="sources-dialog__status">${escape(msgLoading)}</p>`;
+    countEl.textContent = "";
+
+    try {
+      const res = await fetch(`${apiUrl}/${language}/sources`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      cache = (await res.json()) as ApiSourcesResponse;
+      render(cache);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      body.innerHTML = `
+        <p class="sources-dialog__status sources-dialog__status--error">
+          ${escape(msgError)} <span class="sources-dialog__status-detail">(${escape(detail)})</span>
+        </p>`;
+      countEl.textContent = "";
+    } finally {
+      loading = false;
+    }
+  };
+
+  const open = (): void => {
+    btn.setAttribute("aria-expanded", "true");
+    if (typeof dlg.showModal === "function") {
+      dlg.showModal();
+    } else {
+      dlg.setAttribute("open", "");
+    }
+    void load();
+  };
+
+  const close = (): void => {
+    btn.setAttribute("aria-expanded", "false");
+    if (typeof dlg.close === "function" && dlg.open) {
+      dlg.close();
+    } else {
+      dlg.removeAttribute("open");
+    }
+  };
+
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    if (dlg.open) close();
+    else open();
+  });
+
+  closeBtns.forEach((b) => {
+    b.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      close();
+    });
+  });
+
+  // Cierra al clicar fuera del panel (backdrop).
+  dlg.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement;
+    if (target === dlg) close();
+  });
+</script>
 
 <style>
   .site-header {
@@ -106,6 +382,48 @@ const buildLangHref = (lang: Language): string => {
     letter-spacing: 0.2px;
   }
 
+  .site-header__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .site-header__sources-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.25px;
+    color: var(--ps-inverse);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--ps-r-pill);
+    cursor: pointer;
+    transition: background var(--ps-dur) var(--ps-ease),
+      border-color var(--ps-dur) var(--ps-ease),
+      transform var(--ps-dur) var(--ps-ease);
+  }
+
+  .site-header__sources-btn:hover,
+  .site-header__sources-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.24);
+    outline: none;
+  }
+
+  .site-header__sources-btn:active {
+    transform: translateY(1px);
+  }
+
+  .site-header__sources-btn[aria-expanded="true"] {
+    background: var(--ps-blue);
+    border-color: var(--ps-blue);
+  }
+
   .site-header__nav {
     display: inline-flex;
     align-items: center;
@@ -141,9 +459,355 @@ const buildLangHref = (lang: Language): string => {
     color: var(--ps-inverse);
   }
 
-  @media (max-width: 480px) {
+  @media (max-width: 560px) {
     .site-header__tagline {
       display: none;
+    }
+    .site-header__sources-btn span {
+      display: none;
+    }
+    .site-header__sources-btn {
+      padding: 0 10px;
+    }
+  }
+</style>
+
+<style is:global>
+  /* Estilos del diálogo de fuentes.
+     Se declaran como globales porque el contenido se inyecta por JS con
+     innerHTML y, bajo el scope de Astro, no recibiría los hashes del
+     componente, dejando sin estilo las listas, grupos y enlaces. */
+  dialog.sources-dialog {
+    border: none;
+    padding: 0;
+    margin: auto;
+    background: transparent;
+    width: min(760px, calc(100vw - 32px));
+    max-width: min(760px, calc(100vw - 32px));
+    max-height: min(720px, calc(100vh - 48px));
+    color: var(--ps-ink);
+    overflow: visible;
+  }
+
+  dialog.sources-dialog[open] {
+    animation: sourcesDialogIn 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  @keyframes sourcesDialogIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  dialog.sources-dialog::backdrop {
+    background: rgba(5, 8, 15, 0.55);
+    -webkit-backdrop-filter: blur(6px) saturate(120%);
+    backdrop-filter: blur(6px) saturate(120%);
+  }
+
+  .sources-dialog__panel {
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    color: #111418;
+    border-radius: 20px;
+    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.35),
+      0 8px 24px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+    max-height: inherit;
+    font-family: var(--ps-font, "Inter", system-ui, -apple-system, sans-serif);
+  }
+
+  .sources-dialog__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 26px 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  }
+
+  .sources-dialog__title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    color: #0f172a;
+  }
+
+  .sources-dialog__subtitle {
+    margin: 4px 0 0;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: #64748b;
+  }
+
+  .sources-dialog__close {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: #ffffff;
+    border-radius: 999px;
+    color: #64748b;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease, border-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .sources-dialog__close:hover,
+  .sources-dialog__close:focus-visible {
+    background: #f1f5f9;
+    color: #0f172a;
+    border-color: rgba(15, 23, 42, 0.16);
+    outline: none;
+  }
+
+  .sources-dialog__close:active {
+    transform: scale(0.95);
+  }
+
+  .sources-dialog__body {
+    padding: 8px 26px 4px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 120px;
+    max-height: calc(100vh - 260px);
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .sources-dialog__body::-webkit-scrollbar {
+    width: 8px;
+  }
+  .sources-dialog__body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+  }
+  .sources-dialog__body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .sources-dialog__status {
+    margin: 28px 0;
+    text-align: center;
+    color: #64748b;
+    font-size: 0.92rem;
+  }
+
+  .sources-dialog__status--error {
+    color: #b91c1c;
+  }
+
+  .sources-dialog__status-detail {
+    display: inline-block;
+    margin-left: 6px;
+    opacity: 0.7;
+    font-size: 0.78rem;
+  }
+
+  .sources-dialog__group {
+    padding: 18px 0 14px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  }
+  .sources-dialog__group:first-child {
+    padding-top: 14px;
+  }
+  .sources-dialog__group:last-child {
+    border-bottom: none;
+  }
+
+  .sources-dialog__group-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: #0070cc;
+  }
+
+  .sources-dialog__group-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 7px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #475569;
+    background: #e2e8f0;
+    border-radius: 999px;
+    letter-spacing: 0;
+  }
+
+  .sources-dialog__list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .sources-dialog__item {
+    list-style: none;
+    margin: 0;
+  }
+
+  .sources-dialog__link {
+    display: grid;
+    grid-template-columns: 28px 1fr 14px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    text-decoration: none;
+    color: #0f172a;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    transition: background 160ms ease, border-color 160ms ease,
+      transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .sources-dialog__link:hover,
+  .sources-dialog__link:focus-visible {
+    background: #f8fafc;
+    border-color: rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+    outline: none;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  }
+
+  .sources-dialog__link:active {
+    transform: translateY(1px);
+  }
+
+  .sources-dialog__favicon {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    object-fit: contain;
+    background: #f1f5f9;
+    padding: 2px;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.04);
+  }
+
+  .sources-dialog__link-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 1px;
+  }
+
+  .sources-dialog__source-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sources-dialog__source-host {
+    font-size: 0.74rem;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sources-dialog__external {
+    color: #94a3b8;
+    opacity: 0;
+    transform: translate(-2px, 2px);
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+
+  .sources-dialog__link:hover .sources-dialog__external,
+  .sources-dialog__link:focus-visible .sources-dialog__external {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  .sources-dialog__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 26px 18px;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+    background: #f8fafc;
+  }
+
+  .sources-dialog__count {
+    font-size: 0.82rem;
+    color: #475569;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sources-dialog__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 18px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 160ms ease, color 160ms ease,
+      border-color 160ms ease, transform 160ms ease;
+  }
+
+  .sources-dialog__btn--ghost {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: rgba(15, 23, 42, 0.12);
+  }
+
+  .sources-dialog__btn--ghost:hover,
+  .sources-dialog__btn--ghost:focus-visible {
+    background: #f1f5f9;
+    border-color: rgba(15, 23, 42, 0.2);
+    outline: none;
+  }
+
+  .sources-dialog__btn--ghost:active {
+    transform: translateY(1px);
+  }
+
+  @media (max-width: 520px) {
+    dialog.sources-dialog {
+      width: calc(100vw - 16px);
+      max-width: calc(100vw - 16px);
+    }
+    .sources-dialog__header {
+      padding: 18px 20px 12px;
+    }
+    .sources-dialog__body {
+      padding: 4px 20px;
+    }
+    .sources-dialog__footer {
+      padding: 12px 20px 16px;
+    }
+    .sources-dialog__list {
+      grid-template-columns: 1fr;
     }
   }
 </style>

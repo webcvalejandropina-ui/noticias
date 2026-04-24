@@ -6,9 +6,10 @@ import { type PageState, buildUrl } from "../lib/url";
 interface Props {
   state: PageState;
   sources: string[];
+  apiUrl: string;
 }
 
-const { state, sources } = Astro.props;
+const { state, sources, apiUrl } = Astro.props;
 const { language, category, q, source, view } = state;
 const t = UI_TEXT[language];
 
@@ -120,6 +121,36 @@ const isList = view === "list";
             {t.search}
           </button>
 
+          <button
+            type="button"
+            class="ps-btn ps-btn--mini filters__sync js-sync-btn"
+            data-api-url={apiUrl}
+            data-label={t.sync}
+            data-label-running={t.syncRunning}
+            data-label-ok={t.syncOk}
+            data-label-error={t.syncError}
+            title={t.syncTitle}
+            aria-label={t.sync}
+          >
+            <svg
+              class="filters__sync-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 12a8 8 0 0 1 14-5.3L20 5m0 0v5h-5M20 12a8 8 0 0 1-14 5.3L4 19m0 0v-5h5"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span class="filters__sync-label">{t.sync}</span>
+          </button>
+
           {hasFilters && (
             <a
               href={buildUrl(state, { q: "", source: "", page: 1 })}
@@ -133,6 +164,61 @@ const isList = view === "list";
     }
   </div>
 </section>
+
+<script>
+  const SYNC_RELOAD_DELAY_MS = 900;
+  const SYNC_ERROR_RESET_MS = 3200;
+
+  document
+    .querySelectorAll<HTMLButtonElement>(".js-sync-btn")
+    .forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const rawUrl = btn.dataset.apiUrl;
+        if (!rawUrl) return;
+
+        const apiBase = rawUrl.replace(/\/+$/, "");
+        const labelEl = btn.querySelector<HTMLSpanElement>(
+          ".filters__sync-label",
+        );
+        const original = btn.dataset.label ?? labelEl?.textContent ?? "Sync";
+        const running = btn.dataset.labelRunning ?? original;
+        const ok = btn.dataset.labelOk ?? original;
+        const error = btn.dataset.labelError ?? original;
+
+        btn.disabled = true;
+        btn.classList.remove("is-ok", "is-error");
+        btn.classList.add("is-running");
+        if (labelEl) labelEl.textContent = running;
+
+        try {
+          const res = await fetch(`${apiBase}/sync`, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          btn.classList.remove("is-running");
+          btn.classList.add("is-ok");
+          if (labelEl) labelEl.textContent = ok;
+          setTimeout(() => {
+            window.location.reload();
+          }, SYNC_RELOAD_DELAY_MS);
+        } catch (err) {
+          console.error("[sync] fallo", err);
+          btn.classList.remove("is-running");
+          btn.classList.add("is-error");
+          if (labelEl) labelEl.textContent = error;
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.classList.remove("is-error");
+            if (labelEl) labelEl.textContent = original;
+          }, SYNC_ERROR_RESET_MS);
+        }
+      });
+    });
+</script>
 
 <style>
   .filters {
@@ -193,7 +279,7 @@ const isList = view === "list";
 
   .filters__form {
     display: grid;
-    grid-template-columns: 1fr auto auto auto;
+    grid-template-columns: 1fr auto auto auto auto;
     gap: 12px;
     align-items: center;
   }
@@ -224,6 +310,47 @@ const isList = view === "list";
     white-space: nowrap;
   }
 
+  .filters__sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .filters__sync[disabled] {
+    cursor: progress;
+    opacity: 0.75;
+  }
+
+  .filters__sync-icon {
+    transition: transform 0.6s var(--ps-ease);
+  }
+
+  .filters__sync.is-running .filters__sync-icon {
+    animation: filters-sync-spin 0.9s linear infinite;
+  }
+
+  .filters__sync.is-ok {
+    background: rgba(30, 162, 96, 0.15);
+    border-color: rgba(30, 162, 96, 0.45);
+    color: #1ea260;
+  }
+
+  .filters__sync.is-error {
+    background: rgba(200, 27, 58, 0.12);
+    border-color: rgba(200, 27, 58, 0.4);
+    color: var(--ps-warning);
+  }
+
+  @keyframes filters-sync-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .filters__clear {
     font-size: 0.875rem;
     font-weight: 500;
@@ -251,13 +378,16 @@ const isList = view === "list";
 
   @media (max-width: 900px) {
     .filters__form {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr auto;
     }
     .filters__search {
       grid-column: 1 / -1;
     }
     .filters__select {
       min-width: 0;
+    }
+    .filters__sync {
+      justify-self: end;
     }
   }
 
@@ -267,6 +397,11 @@ const isList = view === "list";
     }
     .filters__select {
       width: 100%;
+    }
+    .filters__sync {
+      width: 100%;
+      justify-content: center;
+      justify-self: stretch;
     }
   }
 </style>

@@ -6,7 +6,16 @@ export const LANGUAGES: { code: Language; label: string }[] = [
 ];
 
 export const CATEGORIES_BY_LANG: Record<Language, Category[]> = {
-  es: ["ia", "futbol", "internacional", "tecnologia", "software", "hack"],
+  es: [
+    "ia",
+    "futbol",
+    "internacional",
+    "tecnologia",
+    "software",
+    "hack",
+    "cine",
+    "medios-int",
+  ],
   en: ["ia"],
 };
 
@@ -17,6 +26,8 @@ export const CATEGORY_LABELS: Record<Category, { es: string; en: string }> = {
   tecnologia: { es: "Tecnología", en: "Technology" },
   software: { es: "Software", en: "Software" },
   hack: { es: "Hack", en: "Hack" },
+  cine: { es: "Cine y series", en: "Movies & TV" },
+  "medios-int": { es: "Medios int", en: "Int. Media" },
 };
 
 export const categoryLabel = (cat: Category, lang: Language): string =>
@@ -26,7 +37,7 @@ export const LANG_LABELS: Record<Language, { title: string; subtitle: string }> 
   es: {
     title: "Noticias",
     subtitle:
-      "Las noticias más relevantes del día, en castellano. 6 categorías, 15 fuentes de referencia y cache diario.",
+      "Las noticias más relevantes del día, en castellano más un agregado de medios internacionales. 8 categorías y cache diario.",
   },
   en: {
     title: "News",
@@ -54,6 +65,21 @@ export const UI_TEXT = {
     byCategory: "Por categoría",
     general: "General",
     generalSubtitle: "Lo más reciente de todas las secciones, mezclado por categoría",
+    sync: "Sincronizar",
+    syncTitle: "Fuerza un /sync global contra la API",
+    syncRunning: "Sincronizando…",
+    syncOk: "Sincronización completada",
+    syncError: "No se pudo sincronizar",
+    sourcesButton: "Fuentes",
+    sourcesTitle: "Fuentes activas",
+    sourcesSubtitle: "Feeds RSS que alimentan cada sección del idioma actual",
+    sourcesLoading: "Cargando fuentes…",
+    sourcesError: "No se pudieron cargar las fuentes",
+    sourcesEmpty: "No hay fuentes configuradas para este idioma.",
+    sourcesCount: (n: number): string =>
+      n === 1 ? "1 fuente" : `${n.toLocaleString("es-ES")} fuentes`,
+    sourcesClose: "Cerrar",
+    sourcesVisit: "Abrir sitio",
   },
   en: {
     search: "Search",
@@ -73,5 +99,20 @@ export const UI_TEXT = {
     byCategory: "By category",
     general: "General",
     generalSubtitle: "The latest from every section, blended by category",
+    sync: "Sync",
+    syncTitle: "Force a global /sync against the API",
+    syncRunning: "Syncing…",
+    syncOk: "Sync complete",
+    syncError: "Sync failed",
+    sourcesButton: "Sources",
+    sourcesTitle: "Active sources",
+    sourcesSubtitle: "RSS feeds powering every section of the current language",
+    sourcesLoading: "Loading sources…",
+    sourcesError: "Sources could not be loaded",
+    sourcesEmpty: "No sources configured for this language.",
+    sourcesCount: (n: number): string =>
+      n === 1 ? "1 source" : `${n.toLocaleString("en-US")} sources`,
+    sourcesClose: "Close",
+    sourcesVisit: "Open site",
   },
 } as const;

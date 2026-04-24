@@ -17,6 +17,11 @@ services:
     # En tu máquina usa la arquitectura nativa (arm64 en Apple Silicon, amd64
     # en Intel) para que el build y la ejecución sean rápidos. Cuando quieras
     # exportar a otro sistema, usa scripts/export-docker-tar.sh (linux/amd64).
+    environment:
+      # En local de confianza permitimos /sync y /refresh sin token para
+      # que el botón "Sincronizar" del frontend los pueda invocar.
+      # NO copiar este comportamiento a producción: ahí usa ADMIN_API_TOKEN.
+      - ALLOW_OPEN_ADMIN_ROUTES=1
 
   frontend:
     build:

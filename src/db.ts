@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { Category, Language, NewsItem, StoredNewsItem } from "./types";
 import { normalizePublicHttpUrl } from "./url-safety";
 
@@ -17,7 +18,7 @@ db.exec("PRAGMA foreign_keys = ON;");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS news (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT PRIMARY KEY,
     source TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -42,6 +43,90 @@ const ensureColumn = (table: string, column: string, definition: string): void =
 
 ensureColumn("news", "language", "TEXT NOT NULL DEFAULT 'en'");
 ensureColumn("news", "category", "TEXT NOT NULL DEFAULT 'ia'");
+
+/**
+ * BD antigua: clave `id INTEGER`. Se reemplaza por `uuid TEXT` conservando filas.
+ */
+const migrateNewsToUuidIfNeeded = (): void => {
+  const cols = db.prepare<{ name: string; type: string }, []>("PRAGMA table_info(news)").all();
+  if (cols.length === 0) return;
+  if (cols.some((c) => c.name === "uuid")) return;
+
+  const hasLegacyId = cols.some((c) => c.name === "id");
+  if (!hasLegacyId) {
+    console.warn("[db] tabla news sin columna uuid ni id; no se migra");
+    return;
+  }
+
+  console.log("[db] migrando news: INTEGER id → TEXT uuid (clave primaria)");
+
+  type LegacyRow = {
+    id: number;
+    source: string;
+    title: string;
+    description: string;
+    link: string;
+    image: string;
+    pub_date: string;
+    scraped_at: string;
+    scrape_day: string;
+    language: string;
+    category: string;
+  };
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(`CREATE TABLE news_uuid_migration (
+      uuid TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      link TEXT NOT NULL UNIQUE,
+      image TEXT NOT NULL DEFAULT '',
+      pub_date TEXT NOT NULL DEFAULT '',
+      scraped_at TEXT NOT NULL,
+      scrape_day TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'en',
+      category TEXT NOT NULL DEFAULT 'ia'
+    )`);
+
+    const rows = db.prepare<LegacyRow, []>("SELECT * FROM news").all();
+    const ins = db.prepare(`
+      INSERT INTO news_uuid_migration
+        (uuid, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category)
+      VALUES ($uuid, $source, $title, $description, $link, $image, $pub_date, $scraped_at, $scrape_day, $language, $category)
+    `);
+
+    for (const r of rows) {
+      ins.run({
+        $uuid: randomUUID(),
+        $source: r.source,
+        $title: r.title,
+        $description: r.description,
+        $link: r.link,
+        $image: r.image,
+        $pub_date: r.pub_date,
+        $scraped_at: r.scraped_at,
+        $scrape_day: r.scrape_day,
+        $language: r.language,
+        $category: r.category,
+      });
+    }
+
+    db.exec("DROP TABLE news");
+    db.exec("ALTER TABLE news_uuid_migration RENAME TO news");
+    db.exec("COMMIT");
+  } catch (e) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  }
+};
+
+migrateNewsToUuidIfNeeded();
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_scrape_day ON news(scrape_day);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source ON news(source);`);
@@ -72,9 +157,9 @@ export const insertNews = (items: NewsItem[]): number => {
 
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO news
-      (source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category)
+      (uuid, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category)
     VALUES
-      ($source, $title, $description, $link, $image, $pub_date, $scraped_at, $scrape_day, $language, $category)
+      ($uuid, $source, $title, $description, $link, $image, $pub_date, $scraped_at, $scrape_day, $language, $category)
   `);
 
   const insertMany = db.transaction((rows: NewsItem[]) => {
@@ -84,6 +169,7 @@ export const insertNews = (items: NewsItem[]): number => {
       if (!link) continue;
 
       const res = stmt.run({
+        $uuid: randomUUID(),
         $source: row.source,
         $title: row.title,
         $description: row.description,
@@ -104,7 +190,7 @@ export const insertNews = (items: NewsItem[]): number => {
 };
 
 interface RawNewsRow {
-  id: number;
+  uuid: string;
   source: string;
   title: string;
   description: string;
@@ -118,7 +204,7 @@ interface RawNewsRow {
 }
 
 const mapRow = (row: RawNewsRow): StoredNewsItem => ({
-  id: row.id,
+  uuid: row.uuid,
   source: row.source,
   title: row.title,
   description: row.description,
@@ -183,10 +269,10 @@ export const queryNews = (q: NewsQuery = {}): StoredNewsItem[] => {
   const offsetSql = q.offset ? `OFFSET ${Math.max(0, Math.floor(q.offset))}` : "";
 
   const sql = `
-    SELECT id, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
+    SELECT uuid, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
     FROM news
     ${whereSql}
-    ORDER BY pub_date DESC, id DESC
+    ORDER BY pub_date DESC, uuid DESC
     ${limitSql} ${offsetSql}
   `;
 
@@ -212,7 +298,7 @@ export const queryRandomMix = (
     const rows = db
       .prepare<RawNewsRow, [Language, Category, number]>(
         `
-        SELECT id, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
+        SELECT uuid, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
         FROM news
         WHERE language = ? AND category = ?
         ORDER BY RANDOM()
@@ -298,10 +384,10 @@ export const queryRecentMix = (
     db
       .prepare<RawNewsRow, [Language, Category, number]>(
         `
-        SELECT id, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
+        SELECT uuid, source, title, description, link, image, pub_date, scraped_at, scrape_day, language, category
         FROM news
         WHERE language = ? AND category = ?
-        ORDER BY pub_date DESC, id DESC
+        ORDER BY pub_date DESC, uuid DESC
         LIMIT ?
       `,
       )
@@ -317,7 +403,7 @@ export const queryRecentMix = (
   sampled.sort((a, b) => {
     const diff = newsTimestamp(b) - newsTimestamp(a);
     if (diff !== 0) return diff;
-    return b.id - a.id;
+    return b.uuid.localeCompare(a.uuid);
   });
 
   // Diversity pass: evita que aparezcan 3+ noticias consecutivas de la misma

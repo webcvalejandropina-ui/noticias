@@ -48,7 +48,7 @@ USER astro
 
 EXPOSE 4321
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
     CMD wget -q -O /dev/null http://127.0.0.1:4321/ || exit 1
 
 CMD ["node", "./dist/server/entry.mjs"]

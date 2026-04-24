@@ -56,6 +56,8 @@ const CATEGORIES = new Set<Category>([
   "tecnologia",
   "software",
   "hack",
+  "cine",
+  "medios-int",
 ]);
 
 export const parseState = (url: URL): PageState => {

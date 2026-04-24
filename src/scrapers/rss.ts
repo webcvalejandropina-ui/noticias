@@ -14,6 +14,25 @@ const USER_AGENT =
 const getMaxAgeCutoffMs = (): number =>
   Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 
+/**
+ * Número máximo de items que nos quedamos por fuente en cada scrape. Los
+ * feeds se filtran primero por antigüedad (últimos `MAX_AGE_DAYS` días) y
+ * después se ordenan por fecha descendente para conservar los más
+ * recientes hasta este tope. Se puede sobreescribir con la variable de
+ * entorno `MAX_ITEMS_PER_SOURCE`.
+ */
+const DEFAULT_MAX_ITEMS_PER_SOURCE = 50;
+
+export const MAX_ITEMS_PER_SOURCE: number = (() => {
+  const raw = process.env.MAX_ITEMS_PER_SOURCE;
+  if (!raw) return DEFAULT_MAX_ITEMS_PER_SOURCE;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_ITEMS_PER_SOURCE;
+  }
+  return parsed;
+})();
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
@@ -212,7 +231,23 @@ export const fetchRssFeed = async (source: ScrapeSource): Promise<ScrapeResult> 
       })
       .filter((x): x is NewsItem => x !== null);
 
-    return { source: source.name, items };
+    // Cap por fuente (últimos N de la ventana de 3 días). Priorizamos las
+    // más recientes: items con fecha válida ordenados desc, y los sin fecha
+    // al final para no perderlos si aún no los filtró el purge.
+    items.sort((a, b) => {
+      const ta = a.pubDate ? Date.parse(a.pubDate) : NaN;
+      const tb = b.pubDate ? Date.parse(b.pubDate) : NaN;
+      const na = Number.isFinite(ta) ? (ta as number) : -Infinity;
+      const nb = Number.isFinite(tb) ? (tb as number) : -Infinity;
+      return nb - na;
+    });
+
+    const capped =
+      items.length > MAX_ITEMS_PER_SOURCE
+        ? items.slice(0, MAX_ITEMS_PER_SOURCE)
+        : items;
+
+    return { source: source.name, items: capped };
   } catch (err) {
     return {
       source: source.name,

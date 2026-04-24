@@ -20,6 +20,7 @@ import {
   queryRecentMix,
 } from "../db";
 import type { Category, Language, NewsItem, ScrapeSource, StoredNewsItem } from "../types";
+import { isVirtualCategory, VIRTUAL_CATEGORIES } from "../types";
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
 const OG_IMAGE_CONCURRENCY = 6;
@@ -120,7 +121,7 @@ export interface EnrichSummary {
 }
 
 interface EnrichableRow {
-  id: number;
+  uuid: string;
   source: string;
   link: string;
   image: string;
@@ -136,7 +137,7 @@ export const enrichStoredNews = async (limit = 400): Promise<EnrichSummary> => {
   const rows = db
     .prepare<EnrichableRow, [number]>(
       `
-      SELECT id, source, link, image
+      SELECT uuid, source, link, image
       FROM news
       WHERE
         link LIKE '%news.google.com%'
@@ -144,7 +145,7 @@ export const enrichStoredNews = async (limit = 400): Promise<EnrichSummary> => {
         OR image LIKE '%lh3.googleusercontent.com%=s0-w%'
         OR image LIKE '%lh3.googleusercontent.com%=s%-w%-rw%'
         OR image LIKE '%s2/favicons%'
-      ORDER BY id DESC
+      ORDER BY scraped_at DESC, uuid DESC
       LIMIT ?
     `,
     )
@@ -160,7 +161,7 @@ export const enrichStoredNews = async (limit = 400): Promise<EnrichSummary> => {
   if (rows.length === 0) return summary;
 
   const update = db.prepare(
-    `UPDATE news SET link = $link, image = $image WHERE id = $id`,
+    `UPDATE news SET link = $link, image = $image WHERE uuid = $uuid`,
   );
 
   const isPlaceholderImage = (img: string): boolean =>
@@ -207,7 +208,7 @@ export const enrichStoredNews = async (limit = 400): Promise<EnrichSummary> => {
 
     if (linkChanged || imageChanged) {
       try {
-        update.run({ $id: row.id, $link: link, $image: image });
+        update.run({ $uuid: row.uuid, $link: link, $image: image });
         if (linkChanged) summary.linksUpdated += 1;
         if (imageChanged) summary.imagesUpdated += 1;
       } catch {
@@ -371,13 +372,119 @@ export const syncBucket = (
  * lanza un scrape síncrono. Se usa desde endpoints que solo leen la BD
  * (p. ej. `/:lang/browse/:category`) para que la primera llamada tras un
  * despliegue en blanco no devuelva una lista vacía.
+ *
+ * Para categorías virtuales (p.ej. `medios-int` que agrega todo EN),
+ * refresca cada bucket del idioma de origen definido en VIRTUAL_CATEGORIES.
  */
 export const ensureBucketFresh = async (
   language: Language,
   category: Category,
 ): Promise<void> => {
+  if (isVirtualCategory(category)) {
+    const def = VIRTUAL_CATEGORIES[category];
+    if (!def) return;
+    const sourceLang = def.sourceLanguage;
+    const cats = Array.from(
+      new Set(
+        SOURCES.filter((s) => s.language === sourceLang).map((s) => s.category),
+      ),
+    );
+    for (const cat of cats) {
+      if (!isBucketFresh(sourceLang, cat)) {
+        await scrapeBucket(sourceLang, cat);
+      }
+    }
+    return;
+  }
+
   if (isBucketFresh(language, category)) return;
   await scrapeBucket(language, category);
+};
+
+/**
+ * Consulta paginada para una categoría virtual (p.ej. `medios-int`): agrega
+ * todo el contenido de su `sourceLanguage` ignorando la categoría concreta,
+ * ordenado por fecha descendente. Reutiliza las tablas existentes sin
+ * duplicar filas.
+ */
+export interface VirtualBrowseQuery {
+  search?: string;
+  source?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface VirtualBrowseResult {
+  total: number;
+  news: StoredNewsItem[];
+  sources: string[];
+}
+
+export const browseVirtualCategory = (
+  category: Category,
+  query: VirtualBrowseQuery = {},
+): VirtualBrowseResult | null => {
+  const def = VIRTUAL_CATEGORIES[category];
+  if (!def) return null;
+  const sourceLang = def.sourceLanguage;
+
+  const baseQuery = {
+    language: sourceLang,
+    search: query.search,
+    source: query.source,
+  };
+  const total = countNews(baseQuery);
+  const news = queryNews({
+    ...baseQuery,
+    limit: query.limit,
+    offset: query.offset,
+  });
+
+  const sources = Array.from(
+    new Set(SOURCES.filter((s) => s.language === sourceLang).map((s) => s.name)),
+  );
+
+  return { total, news, sources };
+};
+
+/**
+ * Top N noticias para una categoría virtual. Utiliza el mix ponderado hacia
+ * lo más reciente con mezcla por categoría (evitando rachas de la misma
+ * sección) y cae a una consulta plana ordenada por fecha si falta material.
+ */
+export const getVirtualTopNews = async (
+  category: Category,
+  limit = 10,
+): Promise<TopNewsResult | null> => {
+  const def = VIRTUAL_CATEGORIES[category];
+  if (!def) return null;
+  const sourceLang = def.sourceLanguage;
+
+  await ensureBucketFresh("es", category);
+
+  const categories = Array.from(
+    new Set(SOURCES.filter((s) => s.language === sourceLang).map((s) => s.category)),
+  );
+
+  let mixed = queryRecentMix(sourceLang, limit, categories);
+  if (mixed.length < limit) {
+    const fallback = queryNews({ language: sourceLang, limit });
+    for (const f of fallback) {
+      if (!mixed.some((m) => m.uuid === f.uuid)) mixed.push(f);
+    }
+  }
+  mixed = sortByRecency(mixed).slice(0, limit);
+
+  const total = countNews({ language: sourceLang });
+
+  return {
+    fromCache: true,
+    news: mixed,
+    day: getToday(),
+    total,
+    language: "es",
+    category,
+  };
 };
 
 /**
@@ -398,6 +505,43 @@ export const kickoffBackgroundSync = (): void => {
 };
 
 /**
+ * Programa un sync periódico en segundo plano. Evita solapamientos: si un
+ * ciclo anterior aún se está ejecutando cuando toca el siguiente tick, se
+ * salta ese tick en vez de lanzar otro. Devuelve el id del interval para
+ * poder cancelarlo desde los tests si fuese necesario.
+ */
+export const scheduleAutoSync = (
+  intervalMs: number,
+  label = "auto",
+): ReturnType<typeof setInterval> => {
+  let running = false;
+
+  const safeIntervalMs = Math.max(intervalMs, 60_000);
+
+  return setInterval(() => {
+    if (running) {
+      console.log(`[api] ${label} sync tick omitido (anterior aún en curso)`);
+      return;
+    }
+    running = true;
+    const startedAt = Date.now();
+    syncAllSources()
+      .then((summary) => {
+        const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+        console.log(
+          `[api] ${label} sync ok (${elapsedSec}s): inserted=${summary.inserted} deleted=${summary.deleted} purged=${summary.purged} errors=${summary.errors.length}`,
+        );
+      })
+      .catch((err) => {
+        console.error(`[api] ${label} sync failed:`, err);
+      })
+      .finally(() => {
+        running = false;
+      });
+  }, safeIntervalMs);
+};
+
+/**
  * Decide si el cache de un bucket sigue siendo válido.
  */
 const isBucketFresh = (language: Language, category: Category): boolean => {
@@ -411,12 +555,12 @@ const isBucketFresh = (language: Language, category: Category): boolean => {
 };
 
 /**
- * Ordena items por fecha de publicación (desc) y luego por id (desc) como tiebreaker.
+ * Ordena items por fecha de publicación (desc) y luego por uuid (lex desc) como tiebreaker.
  */
 const sortByRecency = (items: StoredNewsItem[]): StoredNewsItem[] => {
   return [...items].sort((a, b) => {
     if (a.pubDate !== b.pubDate) return a.pubDate > b.pubDate ? -1 : 1;
-    return b.id - a.id;
+    return b.uuid.localeCompare(a.uuid);
   });
 };
 
@@ -443,21 +587,21 @@ const selectWithFairness = (
   for (const [, arr] of grouped) {
     arr.sort((a, b) => {
       if (a.pubDate !== b.pubDate) return a.pubDate > b.pubDate ? -1 : 1;
-      return b.id - a.id;
+      return b.uuid.localeCompare(a.uuid);
     });
   }
 
   const result: StoredNewsItem[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
 
   const rounds = Math.max(0, ...Array.from(grouped.values()).map((a) => a.length));
   for (let round = 0; round < rounds && result.length < limit; round++) {
     for (const [, arr] of grouped) {
       if (result.length >= limit) break;
       const item = arr[round];
-      if (item && !seen.has(item.id)) {
+      if (item && !seen.has(item.uuid)) {
         result.push(item);
-        seen.add(item.id);
+        seen.add(item.uuid);
       }
     }
   }
@@ -508,7 +652,7 @@ export const getTopNews = async (
         source: missing.name,
         limit: 1,
       });
-      if (fallback && !selected.some((s) => s.id === fallback.id)) {
+      if (fallback && !selected.some((s) => s.uuid === fallback.uuid)) {
         selected.push(fallback);
       }
     }
@@ -568,7 +712,7 @@ export const getDigest = async (
         limit: perCategory - selected.length,
       });
       for (const f of fallback) {
-        if (!selected.some((s) => s.id === f.id)) selected.push(f);
+        if (!selected.some((s) => s.uuid === f.uuid)) selected.push(f);
       }
     }
 

@@ -25,6 +25,11 @@ data/*
 # Vista previa generada solo en local (no versionar)
 preview-local.png
 
+# Basura local de depuración
+tmp.html
+tmp.json
+tmp.xml
+
 # Export Docker local (docker save)
 noticias-docker-images.tar
 noticias-api-image.tar

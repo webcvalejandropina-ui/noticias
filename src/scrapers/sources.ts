@@ -1,4 +1,5 @@
 import type { Category, Language, ScrapeSource } from "../types";
+import { VIRTUAL_CATEGORIES } from "../types";
 
 /**
  * Fuentes de noticias. Usamos RSS porque es estable, ligero y respetuoso con
@@ -24,6 +25,14 @@ const favicon = (domain: string): string =>
  */
 const googleNewsEn = (query: string): string =>
   `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+
+/**
+ * Variante en castellano de Google News RSS, útil para secciones de medios
+ * españoles/hispanos que no publican un feed dedicado (p.ej. páginas de
+ * categoría en Hipertextual como `/software/` o `/ciencia/`).
+ */
+const googleNewsEs = (query: string): string =>
+  `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=es&gl=ES&ceid=ES:es`;
 
 export const SOURCES: ScrapeSource[] = [
   {
@@ -166,6 +175,14 @@ export const SOURCES: ScrapeSource[] = [
     language: "es",
     category: "ia",
   },
+  {
+    name: "Hipertextual IA",
+    rssUrl: "https://hipertextual.com/inteligencia-artificial/feed/",
+    homepage: "https://hipertextual.com/inteligencia-artificial/",
+    fallbackImage: favicon("hipertextual.com"),
+    language: "es",
+    category: "ia",
+  },
 
   {
     name: "Marca",
@@ -202,19 +219,59 @@ export const SOURCES: ScrapeSource[] = [
   },
 
   {
+    name: "Xataka Tecnología",
+    rssUrl: "https://www.xataka.com/tag/tecnologia/rss2.xml",
+    homepage: "https://www.xataka.com/tag/tecnologia",
+    fallbackImage: favicon("xataka.com"),
+    language: "es",
+    category: "tecnologia",
+  },
+  {
+    name: "ComputerHoy",
+    rssUrl: "https://computerhoy.20minutos.es/rss",
+    homepage: "https://computerhoy.20minutos.es/",
+    fallbackImage: favicon("computerhoy.20minutos.es"),
+    language: "es",
+    category: "tecnologia",
+  },
+  {
     name: "Muy Interesante Tecnología",
-    rssUrl: "https://muyinteresante.okdiario.com/tecnologia/feed",
-    homepage: "https://muyinteresante.okdiario.com/tecnologia/",
-    fallbackImage: favicon("okdiario.com"),
+    rssUrl: "https://www.muyinteresante.com/tecnologia/feed/",
+    homepage: "https://www.muyinteresante.com/tecnologia/",
+    fallbackImage: favicon("muyinteresante.com"),
+    language: "es",
+    category: "tecnologia",
+  },
+  {
+    name: "Hipertextual Ciencia",
+    rssUrl: googleNewsEs("site:hipertextual.com/ciencia"),
+    homepage: "https://hipertextual.com/ciencia/",
+    fallbackImage: favicon("hipertextual.com"),
     language: "es",
     category: "tecnologia",
   },
 
   {
-    name: "Europa Press Software",
-    rssUrl: "https://www.europapress.es/rss/rss.aspx?ch=574",
-    homepage: "https://www.europapress.es/portaltic/software/",
-    fallbackImage: favicon("europapress.es"),
+    name: "Softzone",
+    rssUrl: "https://www.softzone.es/feed/",
+    homepage: "https://www.softzone.es/",
+    fallbackImage: favicon("softzone.es"),
+    language: "es",
+    category: "software",
+  },
+  {
+    name: "MuyComputer",
+    rssUrl: "https://www.muycomputer.com/feed/",
+    homepage: "https://www.muycomputer.com/",
+    fallbackImage: favicon("muycomputer.com"),
+    language: "es",
+    category: "software",
+  },
+  {
+    name: "Hipertextual Software",
+    rssUrl: googleNewsEs("site:hipertextual.com/software"),
+    homepage: "https://hipertextual.com/software/",
+    fallbackImage: favicon("hipertextual.com"),
     language: "es",
     category: "software",
   },
@@ -243,6 +300,47 @@ export const SOURCES: ScrapeSource[] = [
     language: "es",
     category: "hack",
   },
+
+  {
+    name: "SensaCine",
+    rssUrl: "https://www.sensacine.com/rss/noticias.xml",
+    homepage: "https://www.sensacine.com/noticias/",
+    fallbackImage: favicon("sensacine.com"),
+    language: "es",
+    category: "cine",
+  },
+  {
+    name: "Hipertextual Cine/TV",
+    rssUrl: "https://hipertextual.com/cine-television/feed/",
+    homepage: "https://hipertextual.com/cine-television/",
+    fallbackImage: favicon("hipertextual.com"),
+    language: "es",
+    category: "cine",
+  },
+  {
+    name: "eCartelera",
+    rssUrl: "https://www.ecartelera.com/rss/feed.xml",
+    homepage: "https://www.ecartelera.com/noticias/",
+    fallbackImage: favicon("ecartelera.com"),
+    language: "es",
+    category: "cine",
+  },
+  {
+    name: "El Séptimo Arte",
+    rssUrl: "https://www.elseptimoarte.net/rss.php",
+    homepage: "https://www.elseptimoarte.net/noticias/",
+    fallbackImage: favicon("elseptimoarte.net"),
+    language: "es",
+    category: "cine",
+  },
+  {
+    name: "HobbyCine",
+    rssUrl: "https://www.hobbyconsolas.com/rss/hobbycine.xml",
+    homepage: "https://www.hobbyconsolas.com/hobbycine/",
+    fallbackImage: favicon("hobbyconsolas.com"),
+    language: "es",
+    category: "cine",
+  },
 ];
 
 export const getSourceByName = (name: string): ScrapeSource | undefined =>
@@ -257,6 +355,14 @@ export const getCategoriesByLanguage = (language: Language): Category[] => {
   const set = new Set<Category>();
   for (const s of SOURCES) {
     if (s.language === language) set.add(s.category);
+  }
+  // Categorías virtuales: se muestran en un idioma aunque no tengan fuentes
+  // propias (p.ej. "medios-int" agrega en ES todo el contenido de EN).
+  for (const [cat, def] of Object.entries(VIRTUAL_CATEGORIES)) {
+    if (!def) continue;
+    if (language === "es" && (cat as Category) === "medios-int") {
+      set.add(cat as Category);
+    }
   }
   return Array.from(set);
 };

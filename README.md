@@ -1,10 +1,10 @@
 # News (multi-idioma · multi-categoría)
 
-Agregador de noticias con API en **Bun** + **SQLite** y frontend **Astro SSR** (sistema de diseño inspirado en PlayStation.com). Cobertura en **inglés** y **español**, con 6 categorías (IA, fútbol, internacional, tecnología, software, hack). Cada noticia tiene siempre **imagen**, **título**, **descripción** y **enlace**.
+Agregador de noticias con API en **Bun** + **SQLite** y frontend **Astro SSR** (sistema de diseño inspirado en PlayStation.com). Cobertura en **inglés** y **español**, con **8 categorías** (IA, fútbol, internacional, tecnología, software, hack, cine y series, más **medios-int** virtual en ES). Cada noticia tiene siempre **imagen**, **título**, **descripción** y **enlace**. En la base de datos la clave primaria es **`uuid`** (texto), no un entero autoincremental.
 
 ![preview](./frontend/public/favicon.svg)
 
-- **API** en `http://localhost:${HOST_PORT:-13100}` — endpoints `/:lang/news/:category`, `/:lang/browse/:category`, `/refresh`, …
+- **API** en `http://localhost:${HOST_PORT:-13100}` — `/:lang/news/:category`, `/:lang/browse/:category`, `/all-news` (export en+es + catálogo), `/sync`, `/refresh`, …
 - **Frontend** en `http://localhost:${FRONTEND_PORT:-4321}` — paginación, búsqueda y filtros, SSR sin cliente pesado
 - **Scraper** one-shot para cron
 
@@ -25,14 +25,27 @@ Agregador de noticias con API en **Bun** + **SQLite** y frontend **Astro SSR** (
 
 | Categoría | Endpoint | Fuentes |
 |-----------|----------|---------|
-| Inteligencia artificial | `/es/news/ia` | Xataka IA · El País IA · 20 Minutos IA · Wired ES IA · Telefónica IA |
+| Inteligencia artificial | `/es/news/ia` | Xataka IA · El País IA · 20 Minutos IA · Wired ES IA · Telefónica IA · Hipertextual IA |
 | Fútbol | `/es/news/futbol` | Marca · AS |
 | Internacional | `/es/news/internacional` | 20 Minutos Internacional · ABC Internacional |
-| Tecnología | `/es/news/tecnologia` | Muy Interesante Tecnología |
-| Software | `/es/news/software` | Europa Press Software |
+| Tecnología | `/es/news/tecnologia` | Xataka Tecnología · ComputerHoy · Muy Interesante Tecnología · Hipertextual Ciencia |
+| Software | `/es/news/software` | Softzone · MuyComputer · Hipertextual Software |
 | Hack / ciberseguridad | `/es/news/hack` | Libertad Digital Hacker · The Hacker News |
+| Cine y series | `/es/news/cine` | SensaCine · Hipertextual Cine/TV · eCartelera · El Séptimo Arte · HobbyCine |
+| Medios int (virtual) | `/es/news/medios-int` | Agrega todo el contenido de EN (MIT TR, The Verge, Wired, OpenAI Blog…) sin duplicar almacenamiento. |
 
 > Cuando una fuente no expone un feed RSS filtrado por tema (p.ej. El País o Libertad Digital), usamos Google News RSS (`site:dominio consulta`) para obtener solo los artículos relevantes. Esto evita scraping agresivo.
+
+### Sincronización automática
+
+La API ejecuta un **`/sync` global** en segundo plano cada **60 minutos** por defecto (todas las fuentes). Configurable con `AUTO_SYNC_INTERVAL_MIN` en el entorno de `api` (`0` desactiva el intervalo). El frontend incluye un botón **"Sincronizar"** que dispara un **`/sync` manual** contra la API pública (`PUBLIC_API_URL`) y recarga la vista cuando termina.
+
+### `GET /refresh` vs `GET /sync`
+
+- **`/refresh`** (`scrapeAllSources`): lee todos los RSS, inserta noticias nuevas y purga por antigüedad; **no** elimina filas cuyo artículo ya no aparece en el feed.
+- **`/sync`** (`syncAllSources`): mismo pipeline de inserción y purga, y además **alinea** cada fuente que respondió bien: borra de la BD los registros de esa fuente cuyo `link` ya no está en el RSS actual. Si una fuente falla, **no** se borra nada de ella (evita vaciar la BD por un error puntual).
+
+Ambas rutas son **admin** (token o `ALLOW_OPEN_ADMIN_ROUTES=1` en local; ver tabla de seguridad).
 
 ### Garantía de fuentes en IA
 
@@ -224,7 +237,7 @@ Nunca uses `:latest` en producción; rotar `TAG` te da rollbacks triviales.
 
 | Entorno | `APP_ENV` | Rutas admin (`/refresh`, …) | CORS |
 |---------|-----------|-----------------------------|------|
-| `docker-compose.yml` por defecto | `development` | Abiertas (cómodo en local) | `*` |
+| `docker-compose.yml` + override local | `development` | Con `ALLOW_OPEN_ADMIN_ROUTES=1` en override: sin token; si no, requieren token | `*` |
 | `docker-compose.prod.yml` | `production` | Requieren `ADMIN_API_TOKEN` | Lista en `CORS_ALLOWED_ORIGINS` o estricto |
 
 Cabecera en todas las respuestas JSON: `X-Content-Type-Options: nosniff`. Los errores 500 en producción no incluyen el mensaje interno en el JSON. Los enlaces e imágenes que llegan desde RSS se normalizan y solo se almacenan/renderizan si son URLs públicas `http`/`https` (sin `javascript:`, `data:`, localhost ni redes privadas).
@@ -244,8 +257,11 @@ Variables de entorno soportadas (definibles en un `.env`):
 | `PUBLIC_API_URL` | `http://localhost:13100` | URL con la que el **navegador** llega a la API. En LAN: `http://IP_HOST:13100`. En prod: dominio real. |
 | `NOTICIAS_API_IMAGE` | `ai-news-api:latest` (dev/LAN) / obligatorio (producción) | Imagen de la API |
 | `NOTICIAS_FRONTEND_IMAGE` | `ai-news-frontend:latest` (dev/LAN) / obligatorio (producción) | Imagen del frontend |
-| `SCRAPE_ON_START` | `1` | Si es `1`, dispara un scraping global en segundo plano al arrancar el API |
+| `SCRAPE_ON_START` | `1` | Si es `1`, dispara un **`/sync`** global en segundo plano al arrancar el API |
+| `AUTO_SYNC_INTERVAL_MIN` | `60` | Minutos entre syncs automáticos en background (`0` = desactivado) |
+| `MAX_ITEMS_PER_SOURCE` | `50` | Máximo de ítems tomados por fuente en cada scrape (tras filtro de antigüedad) |
 | `APP_ENV` | `development` (compose base) / `production` (prod) | Activa protección de rutas admin y CORS estricto en producción |
+| `ALLOW_OPEN_ADMIN_ROUTES` | vacío | Si es `1`, `/refresh`, `/sync`, `/enrich`, `/cleanup` y variantes **no** exigen token (solo entornos locales de confianza; el `docker-compose.override.yml` local lo activa) |
 | `ADMIN_API_TOKEN` | vacío (dev) / obligatorio (prod) | Token para `/refresh`, `/sync`, `/enrich`, `/cleanup` y variantes |
 | `CORS_ALLOWED_ORIGINS` | vacío | En prod: lista separada por comas de orígenes permitidos; vacío = sin wildcard, `*` se ignora |
 | `DB_PATH` | `/app/data/news.db` | Ruta al fichero SQLite (contenedor API) |
@@ -268,17 +284,27 @@ Para mantener la DB fresca sin esperar al primer request, puedes programar un sc
 |--------|------|-------------|
 | GET | `/` | Info general y listado de endpoints |
 | GET | `/health` | Health check con nº de noticias de hoy |
-| GET | `/sources` | Fuentes configuradas (con su idioma y categoría) |
-| GET | `/refresh` | Fuerza scraping de **todas** las fuentes |
+| GET | `/sources` | Fuentes configuradas (`name`, `language`, `category`, `homepage`) |
+| GET | `/all-news` | Noticias de **hoy** en **en** y **es** + catálogo (`categories`, `sources`) para integrar con otra API |
+| GET | `/refresh` | **Admin.** Scrape global sin borrado por “links ausentes del RSS” (ver sección refresh vs sync) |
+| GET | `/sync` | **Admin.** Sync global (inserta + alinea fuentes que respondieron bien) |
+| GET | `/enrich` | **Admin.** Revisa links tipo Google News / imágenes placeholder y actualiza registros |
+| GET | `/cleanup` | **Admin.** Purga manual por antigüedad (`MAX_AGE_DAYS` en código) |
 | GET | `/news` | Alias retrocompat → `/en/news/ia` |
 | GET | `/:lang/categories` | Categorías disponibles para un idioma (`en`, `es`) |
 | GET | `/:lang/news` | Top 10 de categoría IA en ese idioma |
-| GET | `/:lang/news/:category` | Top 10 de una categoría (`ia`, `futbol`, `internacional`, `tecnologia`, `software`, `hack`) |
+| GET | `/:lang/news/:category` | Top 10 de una categoría (`ia`, `futbol`, `internacional`, `tecnologia`, `software`, `hack`, `cine`, `medios-int`) |
 | GET | `/:lang/news/:category?limit=N` | Personaliza el número (1-50) |
-| GET | `/:lang/browse/:category` | Listado paginado con filtros (`page`, `pageSize`, `q`, `source`) — pensado para el frontend |
-| GET | `/:lang/sources?category=X` | Fuentes de un idioma (opcional: filtradas por categoría) |
-| GET | `/:lang/all` | Todas las noticias del día para ese idioma |
-| GET | `/:lang/refresh/:category` | Fuerza scraping de un bucket concreto |
+| GET | `/:lang/browse/:category` | Listado paginado (`page`, `pageSize`, `q`, `source`) |
+| GET | `/:lang/digest?perCategory=N` | Resumen: N noticias por categoría del idioma |
+| GET | `/:lang/general?limit=N&mode=recent` | Feed general mezclando categorías (`mode=random` = aleatorio puro) |
+| GET | `/:lang/sources?category=X` | Fuentes del idioma (opcional: filtradas por categoría) |
+| GET | `/:lang/all` | Todas las noticias **del día** (`scrape_day` hoy) para ese idioma |
+| GET | `/:lang/sync` | **Admin.** Sync de todas las fuentes de ese idioma |
+| GET | `/:lang/sync/:category` | **Admin.** Sync de un bucket (idioma + categoría) |
+| GET | `/:lang/refresh/:category` | **Admin.** Scrape de un bucket (sin borrado por links ausentes) |
+
+`lang` ∈ `en` | `es`. Rutas **admin**: en producción usa `Authorization: Bearer …` o `X-Admin-Token` con `ADMIN_API_TOKEN` (en desarrollo, opcionalmente `?token=`).
 
 ### Ejemplo de respuesta `/es/news/ia`
 
@@ -295,7 +321,7 @@ Para mantener la DB fresca sin esperar al primer request, puedes programar un sc
   ],
   "news": [
     {
-      "id": 1234,
+      "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "source": "Xataka IA",
       "title": "Siri se ha convertido en un patito feo. Así que Apple va a mandar a 200 ingenieros…",
       "description": "Apple reorganiza su división de IA tras…",
@@ -310,6 +336,14 @@ Para mantener la DB fresca sin esperar al primer request, puedes programar un sc
   ]
 }
 ```
+
+### `GET /all-news` (export integración)
+
+Misma ventana temporal que `/:lang/all`: noticias con **`scrape_day`** = hoy (UTC). Incluye:
+
+- `day`, `languages`, `totalCount`, `en` / `es` (`count`, `news`)
+- `categories`: `all`, `byLanguage`, `virtual` (p. ej. `medios-int` → `sourceLanguage`)
+- `sources`: `count`, `items` (misma forma que `/sources`)
 
 ## Cómo funciona el cache
 
@@ -331,7 +365,7 @@ Toda noticia devuelta siempre tiene imagen, siguiendo esta cascada:
 
 ```sql
 CREATE TABLE news (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid        TEXT PRIMARY KEY,
   source      TEXT NOT NULL,
   title       TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
@@ -346,7 +380,7 @@ CREATE TABLE news (
 -- Índices: scrape_day, source, pub_date, (language, category), (language, category, scrape_day)
 ```
 
-El campo `link UNIQUE` evita duplicados entre scrapings. Al abrir una DB vieja (sin `language`/`category`), el código ejecuta un `ALTER TABLE ADD COLUMN` idempotente para migrarla sin perder datos.
+El campo `link UNIQUE` evita duplicados entre scrapings. Al abrir una BD antigua con clave entera `id`, el arranque del API **migra automáticamente** a `uuid` (nuevos UUID por fila; los `id` numéricos no se conservan). Las columnas `language` / `category` en BD muy viejas se añaden con `ALTER TABLE` idempotente si faltan.
 
 ## Frontend (Astro SSR)
 
@@ -396,7 +430,7 @@ API_URL=http://localhost:13100 pnpm start
 │   │   └── scrape.ts           # CLI: `pnpm scrape [idioma] [categoria]`
 │   └── scrapers/
 │       ├── index.ts            # Orquestador + cache por bucket + fairness
-│       ├── sources.ts          # Fuentes configuradas (21)
+│       ├── sources.ts          # Fuentes RSS configuradas (lista en código)
 │       ├── rss.ts              # Parser RSS/Atom + filtro por keywords
 │       └── og-image.ts         # Extractor de og:image
 └── frontend/                   # Frontend Astro SSR

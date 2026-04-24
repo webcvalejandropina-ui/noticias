@@ -1,10 +1,13 @@
 import {
+  browseVirtualCategory,
   enrichStoredNews,
   ensureBucketFresh,
   getDigest,
   getGeneralFeed,
   getTopNews,
+  getVirtualTopNews,
   kickoffBackgroundSync,
+  scheduleAutoSync,
   scrapeAllSources,
   scrapeBucket,
   syncAllSources,
@@ -20,6 +23,8 @@ import {
 import {
   ALL_CATEGORIES,
   ALL_LANGUAGES,
+  VIRTUAL_CATEGORIES,
+  isVirtualCategory,
   type Category,
   type Language,
 } from "./types";
@@ -152,13 +157,6 @@ const handleBrowse = async (
     return json(req, { error: "Unknown category", category }, 400);
   }
 
-  const sources = getSourcesBy(language, category);
-  if (sources.length === 0) {
-    return json(req, { error: "No sources for this bucket", language, category }, 404);
-  }
-
-  await ensureBucketFresh(language, category);
-
   const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
   const pageSize = Math.min(
     Math.max(Number(url.searchParams.get("pageSize") ?? 12) || 12, 1),
@@ -166,6 +164,52 @@ const handleBrowse = async (
   );
   const q = url.searchParams.get("q")?.trim() || undefined;
   const source = url.searchParams.get("source")?.trim() || undefined;
+
+  if (isVirtualCategory(category)) {
+    const virt = VIRTUAL_CATEGORIES[category];
+    if (!virt) {
+      return json(req, { error: "Virtual category misconfigured", category }, 500);
+    }
+    await ensureBucketFresh(language, category);
+
+    const totalOnly = browseVirtualCategory(category, { search: q, source });
+    if (!totalOnly) {
+      return json(req, { error: "Virtual category misconfigured", category }, 500);
+    }
+    const total = totalOnly.total;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(page, totalPages);
+
+    const paged = browseVirtualCategory(category, {
+      search: q,
+      source,
+      limit: pageSize,
+      offset: (safePage - 1) * pageSize,
+    });
+    if (!paged) {
+      return json(req, { error: "Virtual category misconfigured", category }, 500);
+    }
+
+    return json(req, {
+      language,
+      category,
+      page: safePage,
+      pageSize,
+      total,
+      totalPages,
+      filters: { q: q ?? null, source: source ?? null },
+      sources: paged.sources,
+      count: paged.news.length,
+      news: paged.news,
+    });
+  }
+
+  const sources = getSourcesBy(language, category);
+  if (sources.length === 0) {
+    return json(req, { error: "No sources for this bucket", language, category }, 404);
+  }
+
+  await ensureBucketFresh(language, category);
 
   const baseQuery = { language, category, search: q, source };
   const total = countNews(baseQuery);
@@ -214,6 +258,34 @@ const handleLanguageNews = async (
     );
   }
 
+  const limit = parseLimit(url.searchParams.get("limit"));
+
+  if (isVirtualCategory(category)) {
+    const virt = VIRTUAL_CATEGORIES[category];
+    if (!virt) {
+      return json(req, { error: "Virtual category misconfigured", category }, 500);
+    }
+    const result = await getVirtualTopNews(category, limit);
+    if (!result) {
+      return json(req, { error: "Virtual category misconfigured", category }, 500);
+    }
+    const sources = Array.from(
+      new Set(
+        SOURCES.filter((s) => s.language === virt.sourceLanguage).map((s) => s.name),
+      ),
+    );
+    return json(req, {
+      language,
+      category,
+      day: result.day,
+      fromCache: result.fromCache,
+      totalAvailable: result.total,
+      count: result.news.length,
+      sources,
+      news: result.news,
+    });
+  }
+
   const sources = getSourcesBy(language, category);
   if (sources.length === 0) {
     return json(
@@ -228,7 +300,6 @@ const handleLanguageNews = async (
     );
   }
 
-  const limit = parseLimit(url.searchParams.get("limit"));
   const result = await getTopNews(language, category, limit);
 
   return json(req, {
@@ -291,7 +362,7 @@ const server = Bun.serve({
           endpoints: {
             "GET /:lang/news": "Top 10 noticias del día (idioma + categoría IA por defecto)",
             "GET /:lang/news/:category":
-              "Top 10 noticias de una categoría concreta (ia, futbol, internacional, tecnologia, software, hack)",
+              "Top 10 noticias de una categoría concreta (ia, futbol, internacional, tecnologia, software, hack, cine, medios-int)",
             "GET /:lang/news/:category?limit=N": "Personaliza el número (1-50)",
             "GET /:lang/browse/:category":
               "Listado paginado con filtros (page, pageSize, q, source) — pensado para UIs",
@@ -311,6 +382,8 @@ const server = Bun.serve({
             "GET /enrich?limit=N": `Enriquecimiento de registros${adminRouteEpilog}`,
             "GET /cleanup": `Purge manual +3 días${adminRouteEpilog}`,
             "GET /news": "Alias retrocompat de /en/news/ia",
+            "GET /all-news":
+              "Noticias de hoy (en+es) + catálogo: categorías por idioma, virtuales y fuentes RSS (mismo día que /:lang/all)",
           },
           examples: [
             "/es/news",
@@ -320,6 +393,8 @@ const server = Bun.serve({
             "/es/news/tecnologia",
             "/es/news/software",
             "/es/news/hack",
+            "/es/news/cine",
+            "/es/news/medios-int",
             "/en/news",
             "/en/news/ia?limit=20",
           ],
@@ -385,6 +460,42 @@ const server = Bun.serve({
 
       if (path === "/news") {
         return await handleLanguageNews(req, "en", "ia", url);
+      }
+
+      if (path === "/all-news") {
+        const day = getToday();
+        const enNews = queryNews({ language: "en", day });
+        const esNews = queryNews({ language: "es", day });
+        const categoriesByLanguage = Object.fromEntries(
+          ALL_LANGUAGES.map((l) => [l, getCategoriesByLanguage(l)]),
+        ) as Record<Language, Category[]>;
+        const virtualCategories = Object.fromEntries(
+          Object.entries(VIRTUAL_CATEGORIES).filter((entry): entry is [Category, { sourceLanguage: Language }] => {
+            const def = entry[1];
+            return def != null;
+          }),
+        );
+        return json(req, {
+          day,
+          languages: ALL_LANGUAGES,
+          categories: {
+            all: ALL_CATEGORIES,
+            byLanguage: categoriesByLanguage,
+            virtual: virtualCategories,
+          },
+          sources: {
+            count: SOURCES.length,
+            items: SOURCES.map((s) => ({
+              name: s.name,
+              language: s.language,
+              category: s.category,
+              homepage: s.homepage,
+            })),
+          },
+          totalCount: enNews.length + esNews.length,
+          en: { count: enNews.length, news: enNews },
+          es: { count: esNews.length, news: esNews },
+        });
       }
 
       if (segments.length >= 1 && isLanguage(segments[0]!)) {
@@ -457,6 +568,20 @@ const server = Bun.serve({
           if (!category || !isCategory(category)) {
             return json(req, { error: "Invalid category", category }, 400);
           }
+          if (isVirtualCategory(category)) {
+            const virt = VIRTUAL_CATEGORIES[category];
+            if (!virt) {
+              return json(req, { error: "Virtual category misconfigured", category }, 500);
+            }
+            const result = await syncLanguage(virt.sourceLanguage);
+            return json(req, {
+              language,
+              category,
+              proxiedFrom: virt.sourceLanguage,
+              day: getToday(),
+              ...result,
+            });
+          }
           const result = await scrapeBucket(language, category);
           return json(req, { language, category, day: getToday(), ...result });
         }
@@ -474,6 +599,20 @@ const server = Bun.serve({
           const category = segments[2];
           if (!category || !isCategory(category)) {
             return json(req, { error: "Invalid category", category }, 400);
+          }
+          if (isVirtualCategory(category)) {
+            const virt = VIRTUAL_CATEGORIES[category];
+            if (!virt) {
+              return json(req, { error: "Virtual category misconfigured", category }, 500);
+            }
+            const result = await syncLanguage(virt.sourceLanguage);
+            return json(req, {
+              language,
+              category,
+              proxiedFrom: virt.sourceLanguage,
+              day: getToday(),
+              ...result,
+            });
           }
           const result = await syncBucket(language, category);
           return json(req, { language, category, day: getToday(), ...result });
@@ -509,12 +648,28 @@ if (/^(1|true|yes|on)$/i.test(process.env.SCRAPE_ON_START ?? "")) {
   kickoffBackgroundSync();
 }
 
+/**
+ * Programa un `/sync` global automático cada AUTO_SYNC_INTERVAL_MIN minutos
+ * (1h por defecto). Se desactiva con AUTO_SYNC_INTERVAL_MIN=0.
+ */
+const autoSyncMin = Number(process.env.AUTO_SYNC_INTERVAL_MIN ?? 60);
+if (Number.isFinite(autoSyncMin) && autoSyncMin > 0) {
+  const intervalMs = autoSyncMin * 60 * 1000;
+  console.log(`[api] auto-sync programado cada ${autoSyncMin} min`);
+  scheduleAutoSync(intervalMs, "auto");
+} else {
+  console.log("[api] auto-sync deshabilitado (AUTO_SYNC_INTERVAL_MIN=0)");
+}
+
 console.log(`  GET /es/news             -> top 10 noticias IA en español`);
 console.log(`  GET /es/news/futbol      -> top 10 fútbol`);
 console.log(`  GET /es/news/internacional`);
 console.log(`  GET /es/news/tecnologia`);
 console.log(`  GET /es/news/software`);
 console.log(`  GET /es/news/hack`);
+console.log(`  GET /es/news/cine`);
+console.log(`  GET /es/news/medios-int  -> agregado en español de noticias en inglés`);
 console.log(`  GET /en/news             -> top 10 noticias IA en inglés`);
 console.log(`  GET /sources             -> fuentes configuradas`);
+console.log(`  GET /all-news            -> todas las noticias de hoy (en + es)`);
 console.log(`  GET /refresh             -> fuerza scraping global`);

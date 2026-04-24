@@ -10,7 +10,9 @@ export type Category =
   | "internacional"
   | "tecnologia"
   | "software"
-  | "hack";
+  | "hack"
+  | "cine"
+  | "medios-int";
 
 export const ALL_CATEGORIES: Category[] = [
   "ia",
@@ -19,7 +21,21 @@ export const ALL_CATEGORIES: Category[] = [
   "tecnologia",
   "software",
   "hack",
+  "cine",
+  "medios-int",
 ];
+
+/**
+ * Categorías virtuales: no tienen fuentes RSS propias, se construyen al vuelo
+ * remezclando contenido que ya tenemos de otros buckets. Para cada categoría
+ * virtual definimos su origen (idioma del cual se agregan las noticias).
+ */
+export const VIRTUAL_CATEGORIES: Partial<Record<Category, { sourceLanguage: Language }>> = {
+  "medios-int": { sourceLanguage: "en" },
+};
+
+export const isVirtualCategory = (category: Category): boolean =>
+  Object.prototype.hasOwnProperty.call(VIRTUAL_CATEGORIES, category);
 
 export const ALL_LANGUAGES: Language[] = ["en", "es"];
 
@@ -35,7 +51,7 @@ export interface NewsItem {
 }
 
 export interface StoredNewsItem extends NewsItem {
-  id: number;
+  uuid: string;
   scrapedAt: string;
   scrapeDay: string;
 }

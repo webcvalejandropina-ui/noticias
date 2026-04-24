@@ -6,10 +6,12 @@ export type Category =
   | "internacional"
   | "tecnologia"
   | "software"
-  | "hack";
+  | "hack"
+  | "cine"
+  | "medios-int";
 
 export interface NewsItem {
-  id: number;
+  uuid: string;
   source: string;
   title: string;
   description: string;
